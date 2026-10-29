@@ -1,0 +1,924 @@
+import type { GameConfig } from "../../config/balance";
+import { clamp, distance, fromAngle, lerp } from "../geometry";
+import type { SeededRandom } from "../rng";
+import type {
+  ChampionId,
+  Edge,
+  EncounterDefinition,
+  EventPayload,
+  DashPayload,
+  GankerId,
+  GankerPayload,
+  GeneratedEncounter,
+  LineShotPayload,
+  MinionSpec,
+  Range,
+  ScheduledEvent,
+  Vec2,
+  YoneEPayload,
+} from "../types";
+
+export interface EncounterGenerationContext {
+  roundIndex: number;
+  difficultyBudget: number;
+  /** 直前ラウンドがSide Gankだった場合の発生方向 (上下を連続固定しないため) */
+  prevSideEdge?: Edge;
+  /** このラウンドの相手チャンピオン (省略時 default) */
+  champion?: ChampionId;
+  cfg: GameConfig;
+}
+
+/** Threat builderが返す、本命 (T=0 = Telegraph開始) 基準の相対タイムライン */
+interface ThreatPlan {
+  events: ScheduledEvent[];
+  /** 最後の判定が完了する相対時刻 */
+  resolveMs: number;
+  recognitionMs: number;
+  earlyWindowStartMs?: number;
+  /** 本命より前に置くイベントの最大リード (相対時刻の負方向) */
+  preLeadMs?: number;
+  safeHint?: Vec2;
+  idealMargin?: number;
+  sideEdge?: Edge;
+  variantId?: string;
+  /** 敵の小ミニオン1体が (何もしなければ) 倒れる相対時刻。CSの誘惑を本命に重ねる */
+  csLureMs?: number;
+  /** 米倉のQ1/Q2演出をプラン側で配置済み */
+  hasQVisuals?: boolean;
+  /** 横から来るガンク役 */
+  ganker?: GankerId;
+}
+
+interface BuildArgs {
+  def: EncounterDefinition;
+  rng: SeededRandom;
+  /** 0 (easy) .. 1 (hard) */
+  t: number;
+  player: Vec2;
+  enemy: Vec2;
+  ctx: EncounterGenerationContext;
+}
+
+const EDGE_OFFSET = 30;
+/** CROSS発射点からanchorまでの最大距離 (RoundSimulationの上限と一致させる) */
+const CROSS_MAX_REACH = 700;
+const LINE_BODY = 50;
+const LINE_TRAVEL = 1_300;
+
+export function difficultyT(budget: number): number {
+  return clamp((budget - 1) / 2.2, 0, 1);
+}
+
+/** Range [easy, hard] を難易度tで補間し、小さなjitterを加える */
+function pr(args: BuildArgs, key: string): number {
+  const range = args.def.parameters[key] as Range;
+  const tj = clamp(args.t + args.rng.range(-0.15, 0.15), 0, 1);
+  return lerp(range[0], range[1], tj);
+}
+
+function main(atMs: number, payload: EventPayload): ScheduledEvent {
+  return { atMs, type: payload.type, isMainThreat: true, payload };
+}
+
+function side(atMs: number, payload: EventPayload): ScheduledEvent {
+  return { atMs, type: payload.type, isMainThreat: false, payload };
+}
+
+function edgeY(edge: Edge, h: number): number {
+  return edge === "TOP" ? -EDGE_OFFSET : h + EDGE_OFFSET;
+}
+
+function travelMs(dist: number, speed: number): number {
+  return (dist / speed) * 1000;
+}
+
+/** 敵は実行時に動くため、敵からPlayerまでの距離は追従レンジの上限で見積もる */
+function enemyReach(args: BuildArgs): number {
+  return args.ctx.cfg.enemy.ai.keepRange[1];
+}
+
+/**
+ * 敵が追従レンジの最短距離から撃っても回避の猶予が残るよう、予兆の最低時間を返す。
+ * hitHalfWidth: 攻撃判定の半幅 (Playerがこれ + 自分の半径だけ横にずれれば当たらない)
+ */
+function enemyMinLeadMs(args: BuildArgs, speed: number, hitHalfWidth: number): number {
+  const cfg = args.ctx.cfg;
+  const ai = cfg.enemy.ai;
+  const pr = cfg.player.radius;
+  const dMin = ai.keepRange[0] - 30;
+  const travel = travelMs(Math.max(0, dMin - hitHalfWidth - pr), speed);
+  const window =
+    args.def.expectedAction === "MOVE"
+      ? cfg.validation.moveSolvableReactionMs + travelMs(hitHalfWidth + pr, cfg.player.moveSpeed) + ai.moveWindowMarginMs
+      : ai.minFlashWindowMs;
+  return Math.max(0, window - travel);
+}
+
+function enemyLine(args: BuildArgs, rawLeadMs: number, speed: number, width: number): ThreatPlan {
+  const leadMs = Math.max(rawLeadMs, enemyMinLeadMs(args, speed, width / 2));
+  return {
+    events: [
+      main(0, {
+        type: "LINE_SHOT",
+        origin: { mode: "ENEMY" },
+        aim: { mode: "ANCHOR", angleJitterRad: 0 },
+        launchAtMs: leadMs,
+        width,
+        speed,
+        bodyLength: LINE_BODY,
+        maxTravel: LINE_TRAVEL,
+        enemyCast: true,
+      }),
+    ],
+    resolveMs: leadMs + travelMs(enemyReach(args) + 120, speed),
+    recognitionMs: 0,
+  };
+}
+
+function sideLine(args: BuildArgs, edge: Edge, leadMs: number, speed: number, width: number): ThreatPlan {
+  const { rng, player, ctx } = args;
+  const dx = rng.sign() * rng.range(120, 250);
+  const origin = { x: player.x + dx, y: edgeY(edge, ctx.cfg.world.height) };
+  return {
+    events: [
+      main(0, {
+        type: "LINE_SHOT",
+        origin: { mode: "EDGE", edge, dxFromAnchor: dx },
+        aim: { mode: "ANCHOR", angleJitterRad: rng.range(-0.04, 0.04) },
+        launchAtMs: leadMs,
+        width,
+        speed,
+        bodyLength: LINE_BODY,
+        maxTravel: LINE_TRAVEL,
+        enemyCast: false,
+      }),
+    ],
+    resolveMs: leadMs + travelMs(distance(origin, player) + 120, speed),
+    recognitionMs: 0,
+    sideEdge: edge,
+  };
+}
+
+function pickSideEdge(args: BuildArgs): Edge {
+  const prev = args.ctx.prevSideEdge;
+  if (prev) return prev === "TOP" ? "BOTTOM" : "TOP";
+  return args.rng.pick<Edge>(["TOP", "BOTTOM"]);
+}
+
+/** 米倉E (魂の踏み込み)。stayMs だけ前に留まってから体へ戻る。E自体は本命ではない */
+function yoneE(a: BuildArgs, atMs: number, outDistance: number, stayMs: number): ScheduledEvent {
+  const y = a.ctx.cfg.champions.yonekura;
+  return side(atMs, {
+    type: "YONE_E",
+    outDistance,
+    outMs: y.eOutMs,
+    returnAtMs: atMs + y.eOutMs + stayMs,
+    returnMs: y.eReturnMs,
+  });
+}
+
+/** 米倉のQ3 / R。発射位置から固定距離を駆け抜け、通り道全体が当たり判定 */
+function yoneDash(a: BuildArgs, style: "q3" | "r", leadMs: number, atMs: number): ThreatPlan {
+  const y = a.ctx.cfg.champions.yonekura;
+  const speed = pr(a, "speed");
+  const length = style === "q3" ? y.q3Length : y.rLength;
+  return {
+    events: [
+      main(atMs, {
+        type: "DASH",
+        startAtMs: atMs + leadMs,
+        speed,
+        width: pr(a, "width"),
+        overshoot: 0,
+        length,
+        harmful: true,
+        style,
+      }),
+    ],
+    resolveMs: atMs + leadMs + travelMs(length, speed) + 100,
+    recognitionMs: atMs,
+  };
+}
+
+/** E で踏み込み → Q3 / R → 体へ戻る */
+function yoneCombo(a: BuildArgs, style: "q3" | "r"): ThreatPlan {
+  const y = a.ctx.cfg.champions.yonekura;
+  const skillAt = y.eOutMs + pr(a, "eToSkillMs");
+  // Eで近づいた後なので、最短距離に関係なく予兆の最低時間を確保する
+  const lead = Math.max(pr(a, "leadMs"), a.ctx.cfg.enemy.ai.minFlashWindowMs);
+  const plan = yoneDash(a, style, lead, skillAt);
+  const length = style === "q3" ? y.q3Length : y.rLength;
+  const dashEnd = skillAt + lead + travelMs(length, (plan.events[0].payload as DashPayload).speed);
+  const returnAt = dashEnd + a.rng.range(200, 350);
+  plan.events.push(side(0, { type: "YONE_E", outDistance: pr(a, "eOut"), outMs: y.eOutMs, returnAtMs: returnAt, returnMs: y.eReturnMs }));
+  plan.resolveMs = Math.max(plan.resolveMs, returnAt + y.eReturnMs);
+  return plan;
+}
+
+// ---- 玉藻 ----------------------------------------------------------------------
+
+/** 玉藻R (当たり判定なし)。bearingは「Player -> 玉藻」の向きからの回転 */
+function tamamoR(at: number, toDistance: number, bearingRad: number): ScheduledEvent {
+  return side(at, { type: "TAMAMO_R", toDistance, bearingRad });
+}
+
+/** Rの所要時間の上限 (最大距離を走り切る時間) */
+function tamamoRMaxMs(a: BuildArgs): number {
+  const tm = a.ctx.cfg.champions.tamamo;
+  return travelMs(tm.rMaxLength, tm.rSpeed);
+}
+
+/**
+ * Eの詠唱時間。距離 d (見積もりの最短) から撃っても、
+ * FLASH問題は「詠唱開始 → 着弾」が minFlashWindowMs 以上、MOVE問題は「反応 + 横へ歩いて抜ける + 余裕」以上になるよう延ばす
+ */
+function tamamoWindup(a: BuildArgs, base: number, d: number): number {
+  const cfg = a.ctx.cfg;
+  const tm = cfg.champions.tamamo;
+  const reach = tm.eWidth / 2 + cfg.player.radius;
+  const flight = travelMs(Math.max(0, d - reach), tm.eSpeed);
+  const need =
+    a.def.expectedAction === "MOVE"
+      ? cfg.validation.moveSolvableReactionMs + travelMs(reach, cfg.player.moveSpeed) + cfg.enemy.ai.moveWindowMarginMs
+      : cfg.enemy.ai.minFlashWindowMs;
+  return Math.max(base, need - flight);
+}
+
+/** E (魅了)。範囲は表示せず、詠唱開始時のPlayer位置へまっすぐ飛ぶ */
+function tamamoEPlan(a: BuildArgs, windup: number, events: ScheduledEvent[]): ThreatPlan {
+  const tm = a.ctx.cfg.champions.tamamo;
+  const e = main(0, {
+    type: "LINE_SHOT",
+    origin: { mode: "ENEMY" },
+    aim: { mode: "ANCHOR", angleJitterRad: 0 },
+    launchAtMs: windup,
+    width: tm.eWidth,
+    speed: tm.eSpeed,
+    bodyLength: tm.eBodyLength,
+    maxTravel: tm.eRange,
+    enemyCast: true,
+    style: "charm",
+  });
+  const earliest = Math.min(0, ...events.map((ev) => ev.atMs));
+  return {
+    events: [...events, e],
+    resolveMs: windup + travelMs(tm.eRange + tm.eBodyLength, tm.eSpeed),
+    recognitionMs: 0,
+    preLeadMs: -earliest,
+    variantId: `R${events.filter((ev) => ev.payload.type === "TAMAMO_R").length}`,
+  };
+}
+
+/** 横への位置取りのR (距離はおおむね保つ) */
+function sideR(a: BuildArgs, at: number): ScheduledEvent {
+  return tamamoR(at, a.rng.range(240, 320), a.rng.sign() * a.rng.range(0.5, 0.9));
+}
+
+/** 最後のRより前に置くRを、間隔をあけて遡って並べる */
+function earlierRs(a: BuildArgs, count: number, firstAt: number, gap: () => number, make: (at: number) => ScheduledEvent): ScheduledEvent[] {
+  const out: ScheduledEvent[] = [];
+  let at = firstAt;
+  for (let i = 0; i < count; i++) {
+    at -= tamamoRMaxMs(a) + gap();
+    out.push(make(at));
+  }
+  return out;
+}
+
+// ---- クリッツブランク ----------------------------------------------------------
+
+/** 陰の中で出現・待機するy */
+function kritzShadeY(a: BuildArgs, edge: Edge): number {
+  const v = a.ctx.cfg.world.vision;
+  const d = a.ctx.cfg.gankers.kritz.shadeDepth;
+  return edge === "TOP" ? v.shadeTop - d : v.shadeBottom + d;
+}
+
+/**
+ * Wで近づいて止まる位置。止まった姿が視界内 (陰の境界から30以上内側) に入るよう、
+ * Playerからの向きをedge側へ傾ける角度の上限を決めて抽選する
+ */
+function kritzStop(a: BuildArgs, edge: Edge, stopDistance: number): { angle: number; goal: Vec2 } {
+  const v = a.ctx.cfg.world.vision;
+  const room = edge === "TOP" ? a.player.y - v.shadeTop - 30 : v.shadeBottom - 30 - a.player.y;
+  const maxAngle = Math.asin(clamp(room / stopDistance, 0, 1));
+  const angle = maxAngle * a.rng.range(0.5, 0.9);
+  const ey = edge === "TOP" ? -1 : 1;
+  return { angle, goal: { x: a.player.x + Math.cos(angle) * stopDistance, y: a.player.y + ey * Math.sin(angle) * stopDistance } };
+}
+
+/** 陰から斜めにWで近づき、止まる位置に着くまでの出現イベントと所要時間 */
+function kritzApproachEvent(
+  a: BuildArgs,
+  edge: Edge,
+  route: "APPROACH" | "RETREAT",
+  stopDistance: number,
+  extra: Partial<GankerPayload> = {},
+): { payload: GankerPayload; travelMs: number; travelDist: number } {
+  const k = a.ctx.cfg.gankers.kritz;
+  const { angle, goal } = kritzStop(a, edge, stopDistance);
+  const maxX = a.ctx.cfg.world.width - k.radius - 20;
+  const spawnDx = Math.min(a.rng.range(150, 280), maxX - goal.x);
+  const spawn = { x: goal.x + spawnDx, y: kritzShadeY(a, edge) };
+  const travelDist = distance(spawn, goal);
+  const travel = travelMs(travelDist, k.hasteSpeed);
+  return {
+    payload: { type: "GANKER", ganker: "kritz", route, edge, stopAngleRad: angle, stopDistance, spawnDx, hasteMs: travel + 300, ...extra },
+    travelMs: travel,
+    travelDist,
+  };
+}
+
+/** Q (グラブ)。発射位置はクリッツブランクの位置、狙いは詠唱開始時のPlayer位置 */
+function kritzHook(a: BuildArgs, windupMs: number): ScheduledEvent {
+  const k = a.ctx.cfg.gankers.kritz;
+  return main(0, {
+    type: "LINE_SHOT",
+    origin: { mode: "GANKER" },
+    aim: { mode: "ANCHOR", angleJitterRad: 0 },
+    launchAtMs: windupMs,
+    width: k.qWidth,
+    speed: k.qSpeed,
+    bodyLength: k.qHeadLength,
+    maxTravel: k.qRange,
+    enemyCast: false,
+    style: "hook",
+  });
+}
+
+/** Wで近づいて止まり、少し間をおいてQ */
+function kritzApproachQ(a: BuildArgs, edge: Edge, stopDistance: number, windupMs: number): ThreatPlan {
+  const k = a.ctx.cfg.gankers.kritz;
+  const { payload, travelMs: travel } = kritzApproachEvent(a, edge, "APPROACH", stopDistance);
+  const appearAt = -(travel + a.rng.range(150, 300));
+  return {
+    events: [side(appearAt, payload), kritzHook(a, windupMs)],
+    resolveMs: windupMs + travelMs(k.qRange + k.qHeadLength, k.qSpeed),
+    // 止まって詠唱を始めた姿が見えた時点
+    recognitionMs: 0,
+    preLeadMs: -appearAt,
+    sideEdge: edge,
+    variantId: `APPROACH-${edge}`,
+    ganker: "kritz",
+  };
+}
+
+/** 陰に潜んだままQ。見えるのは陰から伸びてくる腕と鎖だけ */
+function kritzAmbushQ(a: BuildArgs, edge: Edge, hideDistance: number, windupMs: number): ThreatPlan {
+  const k = a.ctx.cfg.gankers.kritz;
+  const v = a.ctx.cfg.world.vision;
+  const y = kritzShadeY(a, edge);
+  const appearAt = -a.rng.range(500, 900);
+  // 認識 = 鎖が陰の境界を越えて視界に入る時刻
+  const dy = Math.abs(a.player.y - y);
+  const toBoundary = (Math.abs((edge === "TOP" ? v.shadeTop : v.shadeBottom) - y) * hideDistance) / Math.max(1, dy);
+  return {
+    events: [
+      side(appearAt, { type: "GANKER", ganker: "kritz", route: "AMBUSH", edge, stopAngleRad: 0, stopDistance: hideDistance, spawnDx: 0, hasteMs: 0 }),
+      kritzHook(a, windupMs),
+    ],
+    resolveMs: windupMs + travelMs(k.qRange + k.qHeadLength, k.qSpeed),
+    recognitionMs: Math.max(0, Math.floor(windupMs + travelMs(toBoundary, k.qSpeed)) - 5),
+    preLeadMs: -appearAt,
+    sideEdge: edge,
+    variantId: `AMBUSH-${edge}`,
+    ganker: "kritz",
+  };
+}
+
+const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
+  "ENC-001": (a) => enemyLine(a, pr(a, "leadMs"), pr(a, "speed"), pr(a, "width")),
+
+  "ENC-002": (a) => enemyLine(a, pr(a, "leadMs"), pr(a, "speed"), pr(a, "width")),
+
+  "ENC-003": (a) => {
+    const delay = pr(a, "delayMs");
+    return {
+      events: [main(0, { type: "CIRCLE", center: { mode: "ANCHOR", offset: { x: 0, y: 0 } }, radius: pr(a, "radius"), detonateAtMs: delay })],
+      resolveMs: delay,
+      recognitionMs: 0,
+    };
+  },
+
+  "ENC-004": (a) => {
+    const cast = pr(a, "castMs");
+    return {
+      events: [side(0, { type: "FAKE_CAST", durationMs: cast })],
+      resolveMs: cast + a.rng.range(1_200, 2_500),
+      recognitionMs: 0,
+    };
+  },
+
+  "ENC-006": (a) => {
+    const plan = sideLine(a, "TOP", pr(a, "leadMs"), pr(a, "speed"), pr(a, "width"));
+    const { rng, player } = a;
+    const shadowAt = -rng.range(2_000, 3_000);
+    plan.events.push(side(shadowAt, { type: "EDGE_SHADOW", edge: "TOP", x: player.x + rng.range(-150, 150), durationMs: 450 }));
+    plan.preLeadMs = -shadowAt;
+    return plan;
+  },
+
+  "ENC-008": (a) => {
+    const delay = pr(a, "delayMs");
+    const offset = fromAngle(a.rng.range(0, Math.PI * 2));
+    const len = a.rng.range(0, 15);
+    return {
+      events: [
+        main(0, {
+          type: "CIRCLE",
+          center: { mode: "ANCHOR", offset: { x: offset.x * len, y: offset.y * len } },
+          radius: pr(a, "radius"),
+          detonateAtMs: delay,
+        }),
+      ],
+      resolveMs: delay,
+      recognitionMs: 0,
+    };
+  },
+
+  "ENC-010": (a) => {
+    const speed = pr(a, "speed");
+    const width = pr(a, "width");
+    const lead = Math.max(pr(a, "leadMs"), enemyMinLeadMs(a, speed, width / 2));
+    const overshoot = a.def.parameters.overshoot as number;
+    const burstDelay = 120;
+    return {
+      events: [
+        main(0, {
+          type: "DASH",
+          startAtMs: lead,
+          speed,
+          width,
+          overshoot,
+          harmful: true,
+          endBurst: { radius: a.def.parameters.endBurstRadius as number, delayAfterArrivalMs: burstDelay },
+        }),
+      ],
+      resolveMs: lead + travelMs(enemyReach(a) + overshoot, speed) + burstDelay,
+      recognitionMs: 0,
+    };
+  },
+
+  "ENC-012": (a) => {
+    const { rng, ctx } = a;
+    const edge = rng.pick<Edge>(["TOP", "BOTTOM"]);
+    const lead = pr(a, "leadMs");
+    const speed = pr(a, "speed");
+    const width = pr(a, "width");
+    const gap = pr(a, "narrowGap");
+    const s = rng.sign();
+    const bDx = rng.range(-8, 8);
+    const aDx = bDx + s * (width + gap);
+    const dir = { x: 0, y: edge === "TOP" ? 1 : -1 };
+    const line = (dx: number) =>
+      main(0, {
+        type: "LINE_SHOT",
+        origin: { mode: "EDGE", edge, dxFromAnchor: dx },
+        aim: { mode: "FIXED_DIR", dir },
+        launchAtMs: lead,
+        width,
+        speed,
+        bodyLength: LINE_BODY,
+        maxTravel: ctx.cfg.world.height + EDGE_OFFSET * 2 + LINE_BODY,
+        enemyCast: false,
+      });
+    return {
+      events: [line(bDx), line(aDx)],
+      resolveMs: lead + travelMs(ctx.cfg.world.height + EDGE_OFFSET * 2 + LINE_BODY * 2, speed),
+      recognitionMs: 0,
+      safeHint: { x: -s * 170, y: 0 },
+      idealMargin: 70,
+      variantId: `${edge}-${s > 0 ? "WIDE_LEFT" : "WIDE_RIGHT"}`,
+    };
+  },
+
+  "ENC-013": (a) => {
+    const track = pr(a, "trackMs");
+    const speed = pr(a, "speed");
+    const width = pr(a, "width");
+    // Lock (= 認識) から当たるまでの猶予を確保する
+    const lockToLaunch = Math.max(pr(a, "lockToLaunchMs"), enemyMinLeadMs(a, speed, width / 2));
+    return {
+      events: [
+        main(0, {
+          type: "LINE_SHOT",
+          origin: { mode: "ENEMY" },
+          aim: { mode: "TRACK", lockAtMs: track },
+          launchAtMs: track + lockToLaunch,
+          width,
+          speed,
+          bodyLength: LINE_BODY,
+          maxTravel: LINE_TRAVEL,
+          enemyCast: true,
+        }),
+      ],
+      resolveMs: track + lockToLaunch + travelMs(enemyReach(a) + 120, speed),
+      recognitionMs: track,
+      earlyWindowStartMs: 0,
+    };
+  },
+
+  "ENC-015": (a) => {
+    // CS可能になったミニオンの直後に遅いprojectile: 敵の小ミニオン1体の体力が本命直後に尽きるようにする
+    const plan = enemyLine(a, pr(a, "leadMs"), pr(a, "speed"), pr(a, "width"));
+    plan.csLureMs = a.rng.range(300, 900);
+    return plan;
+  },
+
+  "ENC-016": (a) => {
+    const plan = sideLine(a, pickSideEdge(a), pr(a, "leadMs"), pr(a, "speed"), pr(a, "width"));
+    if (a.ctx.champion === "yonekura") {
+      // 米倉: 中央のFakeは「Eで踏み込んで戻るだけ」
+      const fakeAt = -a.rng.range(2_400, 2_800);
+      plan.events.push(yoneE(a, fakeAt, 130, 700));
+      plan.preLeadMs = -fakeAt;
+      return plan;
+    }
+    const fakeAt = -a.rng.range(1_500, 1_900);
+    plan.events.push(side(fakeAt, { type: "FAKE_CAST", durationMs: 500 }));
+    plan.preLeadMs = -fakeAt;
+    return plan;
+  },
+
+  "ENC-017": (a) => {
+    const { rng } = a;
+    const speed = pr(a, "speed");
+    const width = pr(a, "width");
+    const lead = Math.max(pr(a, "leadMs"), enemyMinLeadMs(a, speed, width / 2));
+    // 2本目は「敵 -> Player の線」を交差角だけ回した向き。敵の位置は実行時に決まるため発射点も実行時に計算する
+    const angle = rng.sign() * ((pr(a, "crossAngleDeg") * Math.PI) / 180);
+    const edge = rng.pick<Edge>(["TOP", "BOTTOM"]);
+    const delay2 = rng.range(0, 120);
+    const line = (origin: LineShotPayload["origin"], launch: number, cast: boolean) =>
+      main(0, {
+        type: "LINE_SHOT",
+        origin,
+        aim: { mode: "ANCHOR", angleJitterRad: 0 },
+        launchAtMs: launch,
+        width,
+        speed,
+        bodyLength: LINE_BODY,
+        maxTravel: LINE_TRAVEL,
+        enemyCast: cast,
+      });
+    return {
+      events: [line({ mode: "ENEMY" }, lead, true), line({ mode: "CROSS", edge, angleRad: angle }, lead + delay2, false)],
+      resolveMs: lead + delay2 + travelMs(CROSS_MAX_REACH + 120, speed),
+      recognitionMs: 0,
+      sideEdge: edge,
+    };
+  },
+
+  "ENC-020": (a) => {
+    const track = pr(a, "trackMs");
+    const det = pr(a, "detonateAfterLockMs");
+    return {
+      events: [main(0, { type: "CIRCLE", center: { mode: "TRACK", lockAtMs: track }, radius: pr(a, "radius"), detonateAtMs: track + det })],
+      resolveMs: track + det,
+      recognitionMs: track,
+      earlyWindowStartMs: 0,
+    };
+  },
+
+  "ENC-021": (a) => {
+    const { rng, player, ctx } = a;
+    const lead = pr(a, "leadMs");
+    const speed = pr(a, "speed");
+    const thickness = a.def.parameters.thickness as number;
+    const gapWidth = ctx.cfg.player.radius * 2 * pr(a, "gapDiameters");
+    const gapOffsetY = rng.sign() * rng.range(130, 165);
+    const startXOffset = rng.range(200, 240);
+    return {
+      events: [main(0, { type: "SWEEP", startXOffset, launchAtMs: lead, speed, thickness, gapOffsetY, gapWidth })],
+      resolveMs: lead + travelMs(player.x + startXOffset + thickness, speed),
+      recognitionMs: 0,
+      safeHint: { x: 0, y: gapOffsetY },
+      idealMargin: Math.max(6, (gapWidth / 2 - ctx.cfg.player.radius) * 0.75),
+      variantId: gapOffsetY < 0 ? "GAP_UP" : "GAP_DOWN",
+    };
+  },
+
+  "ENC-024": (a) => {
+    const { rng, player, ctx } = a;
+    const range = a.def.parameters.fakeCount as Range;
+    const count = rng.int(range[0], range[1]);
+    const kinds = rng.shuffle(["STEP_IN", "FAKE_MARKER", "EDGE_SHADOW"] as const).slice(0, count);
+    const events: ScheduledEvent[] = [];
+    let at = 0;
+    let end = 0;
+    for (const kind of kinds) {
+      if (kind === "STEP_IN") {
+        events.push(side(at, { type: "STEP_IN", distance: rng.range(90, 130), durationMs: 900 }));
+        end = at + 900;
+      } else if (kind === "FAKE_MARKER") {
+        events.push(side(at, { type: "FAKE_MARKER", durationMs: 600 }));
+        end = at + 600;
+      } else {
+        const edge = rng.pick<Edge>(["TOP", "BOTTOM"]);
+        const x = clamp(player.x + rng.range(-120, 120), 60, ctx.cfg.world.width - 60);
+        events.push(side(at, { type: "EDGE_SHADOW", edge, x, durationMs: 500 }));
+        end = at + 500;
+      }
+      at = end + rng.range(1_200, 2_200);
+    }
+    return { events, resolveMs: end + rng.range(1_200, 2_000), recognitionMs: 0 };
+  },
+
+  // ---- クリッツブランク ---------------------------------------------------------
+  "KRZ-Q": (a) => {
+    const edge = pickSideEdge(a);
+    const windup = pr(a, "windupMs");
+    // 陰からWで来るか、陰に潜んだままいきなりQか (半々)
+    return a.rng.chance(0.5) ? kritzApproachQ(a, edge, pr(a, "stopDistance"), windup) : kritzAmbushQ(a, edge, pr(a, "ambushDistance"), windup);
+  },
+
+  "KRZ-Q-FAR": (a) => kritzApproachQ(a, pickSideEdge(a), pr(a, "stopDistance"), pr(a, "windupMs")),
+
+  "KRZ-W": (a) => {
+    const { rng, ctx } = a;
+    const k = ctx.cfg.gankers.kritz;
+    const edge = pickSideEdge(a);
+    if (rng.chance(0.5)) {
+      // Wで近づいて止まり、Qを撃たずに陰へ歩いて戻る
+      const wait = pr(a, "waitMs");
+      const first = kritzApproachEvent(a, edge, "RETREAT", pr(a, "stopDistance"));
+      first.payload.leaveAfterMs = first.travelMs + wait;
+      const back = travelMs(first.travelDist, k.walkSpeed);
+      return {
+        events: [side(0, first.payload)],
+        resolveMs: first.travelMs + wait + back + rng.range(600, 1_200),
+        recognitionMs: 0,
+        sideEdge: edge,
+        variantId: `RETREAT-${edge}`,
+        ganker: "kritz",
+      };
+    }
+    // Wでレーンを横切って反対側の陰へ (こちらには向かわない)
+    const v = ctx.cfg.world.vision;
+    const cross = v.shadeBottom - v.shadeTop + k.shadeDepth * 2;
+    const travel = travelMs(cross, k.hasteSpeed);
+    return {
+      events: [
+        side(0, { type: "GANKER", ganker: "kritz", route: "PASS", edge, stopAngleRad: 0, stopDistance: 0, spawnDx: pr(a, "passDx"), hasteMs: travel + 300 }),
+      ],
+      resolveMs: travel + rng.range(800, 1_500),
+      recognitionMs: 0,
+      sideEdge: edge,
+      variantId: `PASS-${edge}`,
+      ganker: "kritz",
+    };
+  },
+
+  // ---- 玉藻 -------------------------------------------------------------------
+  "TMM-RE": (a) => {
+    const { rng } = a;
+    const [lo, hi] = a.def.parameters.rCount as Range;
+    const n = rng.int(lo, hi);
+    const d = pr(a, "inDistance");
+    const lastAt = -(tamamoRMaxMs(a) + pr(a, "rToEMs"));
+    const last = tamamoR(lastAt, d, rng.sign() * rng.range(0, 0.5));
+    const before = earlierRs(a, n - 1, lastAt, () => rng.range(700, 1_800), (at) => sideR(a, at));
+    return tamamoEPlan(a, tamamoWindup(a, pr(a, "windupMs"), d - 15), [...before, last]);
+  },
+
+  "TMM-E-FAR": (a) => {
+    const { rng, ctx } = a;
+    const [lo, hi] = a.def.parameters.rCount as Range;
+    const n = rng.int(lo, hi);
+    const ai = ctx.cfg.enemy.ai;
+    if (n === 0) {
+      // Rを使わない: 追従レンジのどこにいても歩いて避けられる詠唱時間にする
+      return tamamoEPlan(a, tamamoWindup(a, pr(a, "windupMs"), ai.keepRange[0] - 30), []);
+    }
+    const out = pr(a, "outDistance");
+    const lastAt = -(tamamoRMaxMs(a) + pr(a, "rToEMs"));
+    const last = tamamoR(lastAt, out, rng.sign() * rng.range(0, 0.3));
+    const before = earlierRs(a, n - 1, lastAt, () => rng.range(700, 1_600), (at) => sideR(a, at));
+    // 追従レンジの最短距離から最大距離だけ下がった場合でも足りるように見積もる
+    const dWorst = Math.min(out, ai.keepRange[0] - 30 + ctx.cfg.champions.tamamo.rMaxLength) - 20;
+    return tamamoEPlan(a, tamamoWindup(a, pr(a, "windupMs"), dWorst), [...before, last]);
+  },
+
+  "TMM-RRE": (a) => {
+    const { rng } = a;
+    const [lo, hi] = a.def.parameters.rCount as Range;
+    const n = rng.int(lo, hi);
+    const d = pr(a, "inDistance");
+    const lastAt = -(tamamoRMaxMs(a) + pr(a, "rToEMs"));
+    const last = tamamoR(lastAt, d, rng.sign() * rng.range(0, 0.5));
+    const before = earlierRs(a, n - 1, lastAt, () => pr(a, "rGapMs"), (at) => sideR(a, at));
+    return tamamoEPlan(a, tamamoWindup(a, pr(a, "windupMs"), d - 15), [...before, last]);
+  },
+
+  "TMM-RBACK": (a) => {
+    const { rng } = a;
+    const back = pr(a, "backDistance");
+    const backAt = -(tamamoRMaxMs(a) + pr(a, "rToEMs"));
+    const inAt = backAt - tamamoRMaxMs(a) - pr(a, "rGapMs");
+    const events = [tamamoR(inAt, pr(a, "inDistance"), rng.sign() * rng.range(0, 0.4)), tamamoR(backAt, back, rng.sign() * rng.range(0, 0.12))];
+    // 半分の問題では、その前に横へのRも1回使う (合計3回)
+    if (rng.chance(0.5)) events.unshift(sideR(a, inAt - tamamoRMaxMs(a) - rng.range(900, 1_800)));
+    return tamamoEPlan(a, tamamoWindup(a, pr(a, "windupMs"), back - 20), events);
+  },
+
+  "TMM-RBACK-F": (a) => {
+    const { rng } = a;
+    const d = pr(a, "inDistance");
+    const lastAt = -(tamamoRMaxMs(a) + pr(a, "rToEMs"));
+    const backAt = lastAt - tamamoRMaxMs(a) - pr(a, "rGapMs");
+    const inAt = backAt - tamamoRMaxMs(a) - pr(a, "rGapMs");
+    const events = [
+      tamamoR(inAt, pr(a, "inDistance"), rng.sign() * rng.range(0, 0.4)),
+      tamamoR(backAt, pr(a, "backDistance"), rng.sign() * rng.range(0, 0.12)),
+      tamamoR(lastAt, d, rng.sign() * rng.range(0, 0.5)),
+    ];
+    return tamamoEPlan(a, tamamoWindup(a, pr(a, "windupMs"), d - 15), events);
+  },
+
+  // ---- 米倉 -------------------------------------------------------------------
+  "YNK-Q3": (a) => {
+    const plan = yoneDash(a, "q3", Math.max(pr(a, "leadMs"), enemyMinLeadMs(a, pr(a, "speed"), pr(a, "width") / 2)), 0);
+    // Q3の前にQ1/Q2の演出 (近くのミニオンを2回突いて風が溜まる)
+    const { rng } = a;
+    const q1 = -rng.range(3_200, 4_200);
+    const q2 = -rng.range(1_500, 2_300);
+    plan.events.push(side(q1, { type: "YONE_Q_VISUAL", stack: 1, durationMs: 300 }), side(q2, { type: "YONE_Q_VISUAL", stack: 2, durationMs: 300 }));
+    plan.preLeadMs = -q1;
+    plan.hasQVisuals = true;
+    return plan;
+  },
+
+  "YNK-R": (a) => yoneDash(a, "r", Math.max(pr(a, "leadMs"), enemyMinLeadMs(a, pr(a, "speed"), pr(a, "width") / 2)), 0),
+
+  "YNK-EQ3": (a) => yoneCombo(a, "q3"),
+
+  "YNK-ER": (a) => yoneCombo(a, "r"),
+
+  "YNK-E": (a) => {
+    const stay = pr(a, "stayMs");
+    const ev = yoneE(a, 0, pr(a, "eOut"), stay);
+    const p = ev.payload as YoneEPayload;
+    return { events: [ev], resolveMs: p.returnAtMs + p.returnMs + a.rng.range(1_200, 2_200), recognitionMs: 0 };
+  },
+
+  "YNK-E2": (a) => {
+    const first = yoneE(a, 0, pr(a, "eOut"), pr(a, "stayMs"));
+    const p1 = first.payload as YoneEPayload;
+    const secondAt = p1.returnAtMs + p1.returnMs + a.rng.range(1_800, 2_600);
+    const second = yoneE(a, secondAt, pr(a, "eOut"), pr(a, "stayMs"));
+    const p2 = second.payload as YoneEPayload;
+    return { events: [first, second], resolveMs: p2.returnAtMs + p2.returnMs + a.rng.range(1_200, 2_000), recognitionMs: 0 };
+  },
+};
+
+export function hasGenerator(id: string): boolean {
+  return id in THREAT_BUILDERS;
+}
+
+function shiftEvent(ev: ScheduledEvent, dt: number): ScheduledEvent {
+  const p = { ...ev.payload } as EventPayload;
+  switch (p.type) {
+    case "LINE_SHOT":
+      p.launchAtMs += dt;
+      if (p.aim.mode === "TRACK") p.aim = { ...p.aim, lockAtMs: p.aim.lockAtMs + dt };
+      break;
+    case "CIRCLE":
+      p.detonateAtMs += dt;
+      if (p.center.mode === "TRACK") p.center = { ...p.center, lockAtMs: p.center.lockAtMs + dt };
+      break;
+    case "DASH":
+      p.startAtMs += dt;
+      break;
+    case "SWEEP":
+      p.launchAtMs += dt;
+      break;
+    case "YONE_E":
+      p.returnAtMs += dt;
+      break;
+    default:
+      break;
+  }
+  return { ...ev, atMs: ev.atMs + dt, payload: p };
+}
+
+/** Neutral区間のイベント (本命とは内部フラグで区別される) */
+function buildNeutral(rng: SeededRandom, tier: number, t: number, limitMs: number): ScheduledEvent[] {
+  const events: ScheduledEvent[] = [];
+  const count = Math.round(lerp(tier === 1 ? 0 : 1, 3, t) + rng.range(0, 1));
+  // 相手チャンピオンの移動はRoundSimulationのAIが担うため、Neutralイベントは画面端の敵影のみ
+  if (tier < 2) return events;
+  let cursor = 1_000;
+  for (let i = 0; i < count; i++) {
+    const at = cursor + rng.range(0, 1_200);
+    if (at > limitMs) break;
+    events.push(
+      side(at, {
+        type: "EDGE_SHADOW",
+        edge: rng.pick<Edge>(["TOP", "BOTTOM"]),
+        x: rng.range(200, 800),
+        durationMs: 400,
+      }),
+    );
+    cursor = at + 900;
+  }
+  return events;
+}
+
+/**
+ * レーン中央で戦うミニオン。初期体力と、何もしなければ倒れる時刻をSeedで抽選し、
+ * そこから毎秒の体力減少量を決める。
+ */
+export function buildMinions(rng: SeededRandom, cfg: GameConfig, durationMs: number, csLureAtMs?: number): MinionSpec[] {
+  const m = cfg.minions;
+  const out: MinionSpec[] = [];
+  let lureUsed = csLureAtMs === undefined;
+  for (const team of ["ally", "enemy"] as const) {
+    for (const slot of m.layout[team]) {
+      const maxHp = m[slot.kind].maxHp;
+      const startHp = Math.round(maxHp * rng.range(...m.startHpRatio));
+      const window = (team === "enemy" ? m.enemyDeath : m.allyDeath)[slot.kind];
+      let deathAt = durationMs * rng.range(...window);
+      if (!lureUsed && team === "enemy" && slot.kind === "melee") {
+        deathAt = csLureAtMs!;
+        lureUsed = true;
+      }
+      out.push({
+        id: out.length + 1,
+        team,
+        kind: slot.kind,
+        pos: { x: slot.x + rng.range(-6, 6), y: slot.y + rng.range(-6, 6) },
+        maxHp,
+        startHp,
+        drainPerSec: startHp / (Math.max(500, deathAt) / 1000),
+      });
+    }
+  }
+  return out;
+}
+
+export function generateEncounter(
+  def: EncounterDefinition,
+  ctx: EncounterGenerationContext,
+  rng: SeededRandom,
+): GeneratedEncounter {
+  const builder = THREAT_BUILDERS[def.id];
+  if (!builder) throw new Error(`No generator for ${def.id}`);
+  const cfg = ctx.cfg;
+  const t = difficultyT(ctx.difficultyBudget);
+  const player = { x: rng.range(...cfg.player.spawn.x), y: rng.range(...cfg.player.spawn.y) };
+  const enemy = { x: rng.range(...cfg.enemy.spawn.x), y: rng.range(...cfg.enemy.spawn.y) };
+
+  const plan = builder({ def, rng, t, player, enemy, ctx });
+
+  const tail = rng.range(350, 650);
+  const budget = plan.resolveMs + tail;
+  const preLead = plan.preLeadMs ?? 0;
+  let duration = rng.int(def.durationRangeMs[0], def.durationRangeMs[1]);
+  duration = clamp(duration, cfg.roundDurationMs.min, cfg.roundDurationMs.max);
+  let threatStart = duration - budget;
+  const minStart = Math.max(cfg.minThreatStartMs, preLead + 1_200);
+  if (threatStart < minStart) {
+    threatStart = minStart;
+    duration = Math.min(cfg.roundDurationMs.max, Math.ceil(threatStart + budget));
+  }
+  threatStart = Math.round(threatStart);
+
+  const threatEvents = plan.events.map((e) => shiftEvent(e, threatStart));
+  const champion = ctx.champion ?? "default";
+  const neutral = buildNeutral(rng, def.difficulty, t, threatStart - preLead - 1_300);
+  if (champion === "yonekura" && !plan.hasQVisuals) {
+    // 米倉のQ1/Q2演出 (出題ではない)
+    let at = rng.range(1_200, 2_200);
+    for (const stack of [1, 2] as const) {
+      if (at > threatStart - preLead - 900) break;
+      neutral.push(side(at, { type: "YONE_Q_VISUAL", stack, durationMs: 300 }));
+      at += rng.range(1_200, 2_400);
+    }
+  }
+  const events = [...neutral, ...threatEvents].sort((a, b) => a.atMs - b.atMs);
+
+  return {
+    definitionId: def.id,
+    champion,
+    ganker: plan.ganker,
+    name: def.name,
+    kind: def.kind,
+    seed: rng.seed,
+    roundIndex: ctx.roundIndex,
+    difficultyBudget: ctx.difficultyBudget,
+    roundDurationMs: duration,
+    threatStartMs: threatStart,
+    recognitionMs: Math.round(threatStart + plan.recognitionMs),
+    earlyWindowStartMs: plan.earlyWindowStartMs !== undefined ? threatStart + plan.earlyWindowStartMs : undefined,
+    playerSpawn: player,
+    enemySpawns: [enemy],
+    minions: buildMinions(rng, cfg, duration, plan.csLureMs !== undefined ? threatStart + plan.csLureMs : undefined),
+    events,
+    expectedAction: def.expectedAction,
+    timingWindow: def.timingWindow,
+    idealMargin: plan.idealMargin ?? cfg.scoring.defaultIdealMargin,
+    safeHint: plan.safeHint,
+    variantId: plan.variantId,
+    sideEdge: plan.sideEdge,
+  };
+}

@@ -1,0 +1,72 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+  background: #0b120e;
+  color: #e8efe9;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+button {
+  font: inherit; font-weight: 700; letter-spacing: 0.05em;
+  padding: 10px 22px; border-radius: 6px; border: 1px solid #4a5d50;
+  background: #1c2a21; color: inherit; cursor: pointer;
+}
+button:hover { background: #26392d; }
+button.primary { background: #2f7de1; border-color: #2f7de1; color: #fff; }
+button.primary:hover { background: #3b8cf3; }
+kbd { background: #25332a; border: 1px solid #4a5d50; border-radius: 4px; padding: 2px 8px; margin-right: 6px; }
+
+.screen { display: flex; flex-direction: column; align-items: center; padding: 32px 16px; gap: 16px; }
+.title h1, .final h1 { font-size: 56px; letter-spacing: 0.12em; margin: 24px 0 0; }
+.tagline { color: #a9b8ad; margin: 0; }
+.controls { display: grid; gap: 8px; margin-top: 12px; }
+.hints { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; color: #c4d0c7; }
+.swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; vertical-align: -2px; }
+.swatch.red { background: #ff3b3b; }
+.swatch.orange { background: #ffa020; }
+.swatch.yellow { background: #ffe066; }
+.start { display: flex; gap: 12px; align-items: end; margin-top: 12px; }
+.start label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #a9b8ad; }
+.start input { font: inherit; padding: 9px 10px; border-radius: 6px; border: 1px solid #4a5d50; background: #111b15; color: inherit; width: 200px; }
+.future { margin-top: 24px; padding: 12px 20px; border: 1px dashed #3a4a3f; border-radius: 8px; color: #6f8075; font-size: 13px; }
+
+.game { padding: 12px; gap: 8px; }
+.hud { display: flex; gap: 28px; align-items: center; font-size: 18px; width: min(100%, 1280px); }
+.hud strong { font-size: 22px; }
+.hud .flash { padding: 2px 10px; border-radius: 4px; font-weight: 700; }
+.hud .flash.ready { background: #1b5e3a; color: #8dffbf; }
+.hud .flash.used { background: #3a2323; color: #b88; }
+.hud .cs { color: #ffd34d; }
+.hud .opponent { color: #c9b8ff; font-weight: 700; }
+.intro .intro-vs { font-size: 24px; color: #c9b8ff; margin-top: 4px; }
+.hud .cs-bonus { font-size: 14px; }
+.round-result .cs-line { color: #ffd34d; font-size: 16px; font-weight: 700; }
+.final .breakdown { color: #a9b8ad; margin-top: -8px; }
+.hud .combo { color: #ffd34d; font-weight: 700; min-width: 90px; }
+.hud .seed { margin-left: auto; color: #6f8075; font-size: 13px; }
+.stage { position: relative; width: min(100%, 1280px, calc((100vh - 110px) * 16 / 9)); aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; }
+.canvas-host { position: absolute; inset: 0; }
+.canvas-host canvas { display: block; }
+.intro, .round-result { position: absolute; left: 50%; transform: translateX(-50%); pointer-events: none; text-align: center; }
+.intro { top: 40%; font-size: 48px; font-weight: 800; letter-spacing: 0.1em; text-shadow: 0 2px 8px #000; }
+.round-result { top: 6%; padding: 12px 28px; border-radius: 10px; background: rgba(0, 0, 0, 0.6); font-size: 18px; }
+.round-result .headline { font-size: 32px; font-weight: 800; letter-spacing: 0.06em; }
+.round-result.good .headline { color: #8dffbf; }
+.round-result.meh .headline { color: #ffd34d; }
+.round-result.bad .headline { color: #ff6b6b; }
+.round-result .expected { color: #c4d0c7; font-size: 14px; }
+.round-result .points { font-size: 26px; font-weight: 800; }
+.quit { font-size: 12px; padding: 4px 12px; opacity: 0.6; }
+
+.final .total { font-size: 28px; }
+.final .total strong { font-size: 40px; }
+.rounds { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.rounds th, .rounds td { padding: 5px 14px; border-bottom: 1px solid #24322a; text-align: left; }
+.rounds th { color: #8fa094; font-weight: 600; font-size: 13px; }
+.rounds td.num { text-align: right; }
+.rounds td.enc { color: #a9b8ad; font-size: 13px; }
+.rounds tr.hit td { color: #ff8c8c; }
+.stats { display: grid; grid-template-columns: auto auto; gap: 4px 24px; margin: 8px 0; }
+.stats dt { color: #8fa094; }
+.stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.buttons { display: flex; gap: 12px; }
