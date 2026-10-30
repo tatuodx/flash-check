@@ -54,6 +54,30 @@ export function moveSamples(enc: GeneratedEncounter, cfg: GameConfig, reactionMs
   }));
 }
 
+/**
+ * 本命をFlashで避けた後に追撃が来る問題: 「本命を避けられるFlash → 追撃の予兆を見てから歩く」で
+ * 最後まで当たらない組み合わせがあるか (追撃は歩きの反応時間で避けられること)
+ */
+function flashThenWalk(enc: GeneratedEncounter, cfg: GameConfig, sim: SimConfig): boolean {
+  const followUp = enc.followUpMs!;
+  const walkAt = followUp + cfg.validation.moveSolvableReactionMs;
+  let tried = 0;
+  for (const f of flashSamples(enc, cfg)) {
+    if (f.kind !== "FLASH") continue;
+    const s = runScripted(enc, sim, [f]);
+    if (survivedCleanly(s)) return true;
+    // 本命 (追撃より前) に当たるFlashは除外
+    if (s.hit && s.hit.atMs < followUp) continue;
+    if (++tried > 8) break;
+    const n = cfg.validation.moveSampleAngles;
+    for (let i = 0; i < n; i++) {
+      const target = add(f.cursor, scale(fromAngle((i / n) * Math.PI * 2), 400));
+      if (survivedCleanly(runScripted(enc, sim, [f, { atMs: walkAt, kind: "MOVE", target }]))) return true;
+    }
+  }
+  return false;
+}
+
 export function validateEncounter(enc: GeneratedEncounter, cfg: GameConfig): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -96,7 +120,8 @@ export function validateEncounter(enc: GeneratedEncounter, cfg: GameConfig): Val
 
   const survives = (a: ScriptedAction) => survivedCleanly(runScripted(enc, sim, [a]));
   if (enc.expectedAction === "FLASH") {
-    if (!flashSamples(enc, cfg).some(survives)) errors.push("no safe Flash destination");
+    const solved = enc.followUpMs === undefined ? flashSamples(enc, cfg).some(survives) : flashThenWalk(enc, cfg, sim);
+    if (!solved) errors.push("no safe Flash destination");
     if (moveSamples(enc, cfg, cfg.validation.walkableCheckReactionMs).some(survives)) warnings.push("walkable");
   } else if (enc.expectedAction === "MOVE") {
     if (!moveSamples(enc, cfg, cfg.validation.moveSolvableReactionMs).some(survives)) errors.push("no safe walking route");

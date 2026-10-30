@@ -26,9 +26,9 @@ describe("champion assignment", () => {
       for (const { def, champion } of deck) {
         count[champion]++;
         n++;
-        // 米倉/アリは標準の技 (ENC-*) を撃たない。ガンク (クリッツブランク) だけはレーンの相手に関係なく出る
-        if (champion === "yonekura") expect(def.id.startsWith("YNK-") || def.id.startsWith("KRZ-"), def.id).toBe(true);
-        if (champion === "tamamo") expect(def.id.startsWith("TMM-") || def.id.startsWith("KRZ-"), def.id).toBe(true);
+        // 米倉/アリは標準の技 (ENC-*) を撃たない。ガンク (クリッツブランク / アッシュリー) だけはレーンの相手に関係なく出る
+        if (champion === "yonekura") expect(def.id.startsWith("YNK-") || def.gankers !== undefined, def.id).toBe(true);
+        if (champion === "tamamo") expect(def.id.startsWith("TMM-") || def.gankers !== undefined, def.id).toBe(true);
         if (champion === "default") expect(def.id.startsWith("YNK-") || def.id.startsWith("TMM-")).toBe(false);
       }
     }

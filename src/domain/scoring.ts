@@ -185,7 +185,7 @@ export function evaluateRound(enc: GeneratedEncounter, outcome: SimOutcome, cfg:
     encounterName: enc.name,
     variantId: enc.variantId,
     champion: enc.champion,
-    ganker: enc.ganker,
+    gankers: enc.gankers,
     survived: !outcome.hit,
     expectedAction: enc.expectedAction,
     playerAction: cls.playerAction,

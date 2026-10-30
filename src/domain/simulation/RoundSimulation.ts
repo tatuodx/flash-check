@@ -1,5 +1,5 @@
 import type { GameConfig } from "../../config/balance";
-import { isVisible } from "../fieldLayout";
+import { isVisible, onScreen } from "../fieldLayout";
 import { computeFlash } from "../flash";
 import { createRng, type SeededRandom } from "../rng";
 import {
@@ -10,6 +10,7 @@ import {
   clamp,
   clampToBounds,
   distance,
+  fromAngle,
   inBounds,
   normalize,
   rotate,
@@ -35,6 +36,7 @@ export interface SimConfig {
   enemyAi: GameConfig["enemy"]["ai"];
   yonekura: GameConfig["champions"]["yonekura"];
   kritz: GameConfig["gankers"]["kritz"];
+  ashley: GameConfig["gankers"]["ashley"];
   tamamo: GameConfig["champions"]["tamamo"];
   /** 陰の境界 (これより上/下は視界なし) */
   shade: { top: number; bottom: number };
@@ -58,6 +60,7 @@ export function simConfigFrom(cfg: GameConfig): SimConfig {
     enemyAi: cfg.enemy.ai,
     yonekura: cfg.champions.yonekura,
     kritz: cfg.gankers.kritz,
+    ashley: cfg.gankers.ashley,
     tamamo: cfg.champions.tamamo,
     shade: { top: cfg.world.vision.shadeTop, bottom: cfg.world.vision.shadeBottom },
     lane: { ...cfg.world.lane },
@@ -454,6 +457,16 @@ export class RoundSimulation {
             }
             break;
           }
+          if (h.payload.style === "arrow") {
+            // アッシュリーの矢は範囲を表示しない: 画面に映っていて陰の外にある矢の部分が見えるか
+            if (!h.launched) break;
+            const tail = Math.max(0, h.traveled - h.payload.bodyLength);
+            for (let d = tail; d <= Math.min(h.traveled, h.maxTravel); d += 10) {
+              const p = add(h.origin, scale(h.dir, d));
+              if (onScreen(p) && seen(p)) return true;
+            }
+            break;
+          }
           if (h.payload.style === "hook") {
             // クリッツブランクのQは範囲を表示しない: 詠唱する本人か、伸びていく腕と鎖が見えているか
             if (!h.launched && seen(h.origin)) return true;
@@ -725,6 +738,7 @@ export class RoundSimulation {
       return;
     }
     if (p.type !== "LINE_SHOT" && p.type !== "CIRCLE" && p.type !== "DASH" && p.type !== "SWEEP") return;
+    if (ev.reanchor) this.anchor = null;
     const anchor = this.captureAnchor();
     const base = {
       id: this.nextHazardId++,
@@ -744,6 +758,9 @@ export class RoundSimulation {
           origin = this.ganker ? { ...this.ganker.pos } : this.enemyPos();
         } else if (p.origin.mode === "CROSS") {
           origin = this.crossOrigin(anchor, p.origin.edge, p.origin.angleRad);
+        } else if (p.origin.mode === "OFFSCREEN") {
+          // 生成時に「画面に入ってから当たるまで」を見積もった向きなので、左右上下の反転はしない
+          origin = add(anchor, scale(fromAngle(p.origin.angleRad), p.origin.distance));
         } else {
           const top = (p.origin.edge === "TOP") !== this.mirror.y;
           origin = {
@@ -859,14 +876,18 @@ export class RoundSimulation {
 
   /**
    * 被弾後に自分のキャラが動かされる演出 (採点には影響しない)。
-   * クリッツブランクのQ = 本人の前まで引き寄せ / アリのE = 魅了されてアリの方へ歩かされる
+   * クリッツブランクのQ = 本人の前まで引き寄せ / アリのE = 魅了されてアリの方へ歩かされる /
+   * アッシュリーの矢 = その場で凍りつく (動かない)
    */
-  hitDisplacement(): { kind: "hook" | "charm"; from: Vec2; to: Vec2; atMs: number; durationMs: number } | null {
+  hitDisplacement(): { kind: "hook" | "charm" | "freeze"; from: Vec2; to: Vec2; atMs: number; durationMs: number } | null {
     const hook = this.hookPull();
     if (hook) return { kind: "hook", ...hook, durationMs: this.cfg.kritz.pullMs };
     const hit = this.hit;
     if (!hit) return null;
     const h = this.hazards.find((x) => x.id === hit.hazardId);
+    if (h?.kind === "LINE" && h.payload.style === "arrow") {
+      return { kind: "freeze", from: hit.pos, to: hit.pos, atMs: hit.atMs, durationMs: this.cfg.ashley.freezeMs };
+    }
     if (!h || h.kind !== "LINE" || h.payload.style !== "charm") return null;
     const tm = this.cfg.tamamo;
     const enemy = this.enemyPos();

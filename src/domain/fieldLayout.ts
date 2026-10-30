@@ -30,6 +30,18 @@ export function brushAt(p: Vec2): Brush | null {
   return null;
 }
 
+/** 画面に映っているか (GAME_CONFIG.world.screen の四角形の内側) */
+export function onScreen(p: Vec2): boolean {
+  const poly = GAME_CONFIG.world.screen;
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
 export function inShade(p: Vec2): boolean {
   return p.y < vision.shadeTop || p.y > vision.shadeBottom;
 }

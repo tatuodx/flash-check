@@ -35,6 +35,17 @@ export const GAME_CONFIG = {
         { id: "river-bottom", x: 537, y: 558, rx: 140, ry: 30 },
       ],
     },
+    /**
+     * 画面に映る範囲 (ゲーム座標の四角形。左下 → 右下 → 右上 → 左上)。
+     * 16:9 固定の画面とカメラ (createGame.ts の CAMERA) から地面との交点を求めた値を、少し内側へ寄せたもの。
+     * 画面外から来る攻撃 (アッシュリーの矢) は、この範囲に入って陰の外にあるときだけ見える
+     */
+    screen: [
+      { x: -205, y: 210 },
+      { x: 596, y: 1_005 },
+      { x: 1_351, y: 527 },
+      { x: 273, y: -551 },
+    ],
   },
   player: {
     radius: 18,
@@ -124,6 +135,19 @@ export const GAME_CONFIG = {
       /** 当たったとき、クリッツブランクの前まで引き寄せる演出の長さ */
       pullMs: 320,
     },
+    ashley: {
+      name: "アッシュリー",
+      /** R (氷の矢): 判定の幅 (直径)・矢の長さ。速さは問題ごとに「画面に入ってから当たるまで」の時間から決める */
+      arrowWidth: 100,
+      arrowLength: 70,
+      /** 矢の速さの範囲 (この範囲に収まる向きだけを使う) */
+      minSpeed: 550,
+      maxSpeed: 1_300,
+      /** 矢を放つ位置: 画面に入る地点からさらにこの距離だけ外 */
+      spawnBeyond: 200,
+      /** 当たったとき凍りつく演出の長さ */
+      freezeMs: 900,
+    },
   },
   /** Playerの通常攻撃 (攻撃範囲内の敵ミニオンを右クリック。ラストヒット用) */
   attack: {
@@ -204,6 +228,8 @@ export const GAME_CONFIG = {
     minDirectional: 1,
     maxFake: 2,
     maxSameKindStreak: 3,
+    /** 1ゲームのガンクのラウンド数 (この範囲で毎ゲーム抽選する) */
+    gankRounds: [2, 4] as [number, number],
     maxAttempts: 2_000,
   },
 } as const;

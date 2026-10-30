@@ -19,7 +19,7 @@ export type Edge = "TOP" | "BOTTOM";
 export type ChampionId = "default" | "yonekura" | "tamamo";
 
 /** ガンク専用の敵 (レーンの相手とは別に横から来る)。kritz = クリッツブランク (蒸気ロボのグラブ使いモチーフ) */
-export type GankerId = "kritz";
+export type GankerId = "kritz" | "ashley";
 
 export type Range = [number, number];
 
@@ -41,8 +41,8 @@ export interface EncounterDefinition {
   recognitionOffsetMs: number;
   timingWindow: TimingWindow;
   parameters: Record<string, unknown>;
-  /** ガンク専用の敵の問題 (レーンの相手が誰でも出題できる) */
-  ganker?: GankerId;
+  /** ガンク専用の敵の問題 (レーンの相手が誰でも出題できる)。出てくるガンク役 */
+  gankers?: GankerId[];
 }
 
 // ---- Scheduled events -------------------------------------------------------
@@ -56,7 +56,12 @@ export type LineOrigin =
    */
   | { mode: "CROSS"; edge: Edge; angleRad: number }
   /** ガンク役 (クリッツブランク) の現在位置 */
-  | { mode: "GANKER" };
+  | { mode: "GANKER" }
+  /**
+   * 画面外 (アッシュリーの矢)。anchor から angleRad の向きへ distance 離れた点から anchor へ飛ぶ。
+   * angleRad はゲーム座標の角度 (0 = +x)
+   */
+  | { mode: "OFFSCREEN"; angleRad: number; distance: number };
 
 export type LineAim =
   | { mode: "ANCHOR"; angleJitterRad: number }
@@ -79,7 +84,7 @@ export interface LineShotPayload {
    * 見た目: hook = クリッツブランクのQ (範囲を表示せず、腕と鎖だけが見える)
    * / charm = アリのE (範囲を表示せず、飛んでいくハートだけが見える)
    */
-  style?: "hook" | "charm";
+  style?: "hook" | "charm" | "arrow";
 }
 
 export type CircleCenter =
@@ -220,6 +225,8 @@ export interface ScheduledEvent {
   type: EventType;
   isMainThreat: boolean;
   payload: EventPayload;
+  /** 狙いの基準 (anchor) をこの時点のPlayer位置で取り直す (本命を避けた後の追撃用) */
+  reanchor?: boolean;
 }
 
 
@@ -243,7 +250,9 @@ export interface GeneratedEncounter {
   /** このラウンドの相手チャンピオン */
   champion: ChampionId;
   /** このラウンドで横から来るガンク役 (いなければ undefined) */
-  ganker?: GankerId;
+  gankers?: GankerId[];
+  /** 本命を避けた後に来る追撃の予兆の開始時刻 (Validationで「Flash → 歩き」の解を探す) */
+  followUpMs?: number;
   name: string;
   kind: EncounterKind;
   seed: string;
@@ -302,7 +311,7 @@ export interface RoundResult {
   encounterName: string;
   variantId?: string;
   champion: ChampionId;
-  ganker?: GankerId;
+  gankers?: GankerId[];
   survived: boolean;
   expectedAction: PlayerAction;
   playerAction: PlayerAction;

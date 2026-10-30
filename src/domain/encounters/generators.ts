@@ -1,5 +1,6 @@
 import type { GameConfig } from "../../config/balance";
-import { clamp, distance, fromAngle, lerp } from "../geometry";
+import { isVisible, onScreen } from "../fieldLayout";
+import { add, clamp, distance, fromAngle, lerp, scale } from "../geometry";
 import type { SeededRandom } from "../rng";
 import type {
   ChampionId,
@@ -46,7 +47,9 @@ interface ThreatPlan {
   /** 米倉のQ1/Q2演出をプラン側で配置済み */
   hasQVisuals?: boolean;
   /** 横から来るガンク役 */
-  ganker?: GankerId;
+  gankers?: GankerId[];
+  /** 本命を避けた後の追撃の予兆の開始 (相対時刻) */
+  followUpMs?: number;
 }
 
 interface BuildArgs {
@@ -332,7 +335,7 @@ function kritzApproachQ(a: BuildArgs, edge: Edge, stopDistance: number, windupMs
     preLeadMs: -appearAt,
     sideEdge: edge,
     variantId: `APPROACH-${edge}`,
-    ganker: "kritz",
+    gankers: ["kritz"],
   };
 }
 
@@ -355,7 +358,79 @@ function kritzAmbushQ(a: BuildArgs, edge: Edge, hideDistance: number, windupMs: 
     preLeadMs: -appearAt,
     sideEdge: edge,
     variantId: `AMBUSH-${edge}`,
-    ganker: "kritz",
+    gankers: ["kritz"],
+  };
+}
+
+// ---- アッシュリー ----------------------------------------------------------------
+
+/** Playerから向き u の直線上で、飛んでくる矢が最初に見える (画面に映っていて陰の外の) 距離。見えなければ 0 */
+function arrowVisibleDistance(player: Vec2, u: Vec2): number {
+  for (let s = 1_800; s > 0; s -= 2) {
+    const p = add(player, scale(u, s));
+    if (onScreen(p) && isVisible(p, player)) return s;
+  }
+  return 0;
+}
+
+const ARROW_FROM = ["RIGHT", "DOWN_RIGHT", "DOWN", "DOWN_LEFT", "LEFT", "UP_LEFT", "UP", "UP_RIGHT"];
+
+interface ArrowShot {
+  event: ScheduledEvent;
+  /** 矢が画面に入って見え始める・Playerに当たる (何もしない場合)・判定を終える相対時刻 */
+  recognitionMs: number;
+  hitMs: number;
+  resolveMs: number;
+  variantId: string;
+}
+
+/**
+ * 画面外から飛んでくるアッシュリーの矢 (R)。atMs に画面外で放たれ、その時点のPlayer位置へまっすぐ飛ぶ。
+ * どの向きから来るかを抽選し、「画面に入って見えてから当たるまで」が windowMs になる速さにする。
+ * 速さが範囲に収まらない向き (陰を長く通る真上・真下など) は選び直す
+ */
+function ashleyArrow(a: BuildArgs, windowMs: number, atMs = 0): ArrowShot {
+  const ash = a.ctx.cfg.gankers.ashley;
+  const reach = ash.arrowWidth / 2 + a.ctx.cfg.player.radius;
+  for (let i = 0; i < 200; i++) {
+    const angle = a.rng.range(-Math.PI, Math.PI);
+    const visible = arrowVisibleDistance(a.player, fromAngle(angle));
+    const speed = ((visible - reach) / windowMs) * 1000;
+    if (visible <= reach || speed < ash.minSpeed || speed > ash.maxSpeed) continue;
+    const dist = visible + ash.spawnBeyond;
+    const sector = ((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8;
+    return {
+      event: main(atMs, {
+        type: "LINE_SHOT",
+        origin: { mode: "OFFSCREEN", angleRad: angle, distance: dist },
+        aim: { mode: "ANCHOR", angleJitterRad: 0 },
+        launchAtMs: atMs,
+        width: ash.arrowWidth,
+        speed,
+        bodyLength: ash.arrowLength,
+        maxTravel: dist + 1_400,
+        enemyCast: false,
+        style: "arrow",
+      }),
+      recognitionMs: atMs + travelMs(dist - visible, speed),
+      hitMs: atMs + travelMs(dist - reach, speed),
+      resolveMs: atMs + travelMs(dist + reach + ash.arrowLength + 60, speed),
+      variantId: `FROM-${ARROW_FROM[sector]}`,
+    };
+  }
+  throw new Error("no arrow direction fits the window");
+}
+
+/** 矢だけの問題 */
+function ashleyArrowPlan(a: BuildArgs, windowMs: number): ThreatPlan {
+  const arrow = ashleyArrow(a, windowMs);
+  return {
+    events: [arrow.event],
+    resolveMs: arrow.resolveMs,
+    // 生成時の幾何の見積もり。Validationで実際に見えた時刻との差 (50ms以内) を確認する
+    recognitionMs: Math.floor(arrow.recognitionMs) - 2,
+    variantId: arrow.variantId,
+    gankers: ["ashley"],
   };
 }
 
@@ -637,7 +712,7 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
         recognitionMs: 0,
         sideEdge: edge,
         variantId: `RETREAT-${edge}`,
-        ganker: "kritz",
+        gankers: ["kritz"],
       };
     }
     // Wでレーンを横切って反対側の陰へ (こちらには向かわない)
@@ -652,7 +727,7 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
       recognitionMs: 0,
       sideEdge: edge,
       variantId: `PASS-${edge}`,
-      ganker: "kritz",
+      gankers: ["kritz"],
     };
   },
 
@@ -691,6 +766,60 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
 
   // 陰の境界に近い位置から短い距離でQ。鎖が見えてから当たるまでが短い
   "KRZ-AMBUSH-NEAR": (a) => kritzAmbushQ(a, pickSideEdge(a), pr(a, "ambushDistance"), pr(a, "windupMs")),
+
+  // ---- アッシュリー ---------------------------------------------------------------
+  "ASH-R": (a) => ashleyArrowPlan(a, pr(a, "windowMs")),
+
+  "ASH-R-FAR": (a) => ashleyArrowPlan(a, pr(a, "windowMs")),
+
+  // 矢が画面に入るのとほぼ同時に、レーンの相手も本命の技を撃つ
+  "ASH-R-LANE": (a) => {
+    const arrow = ashleyArrow(a, pr(a, "windowMs"));
+    const laneAt = Math.round(arrow.recognitionMs + a.rng.range(-80, 120));
+    const lane = shiftPlan(laneSkill(a), laneAt);
+    return {
+      events: [arrow.event, ...lane.events],
+      resolveMs: Math.max(arrow.resolveMs, lane.resolveMs),
+      recognitionMs: Math.floor(Math.min(arrow.recognitionMs, laneAt)) - 2,
+      preLeadMs: Math.max(0, (lane.preLeadMs ?? 0) - laneAt),
+      variantId: `${a.ctx.champion ?? "default"}-${arrow.variantId}`,
+      gankers: ["ashley"],
+    };
+  },
+
+  // クリッツブランクがWで近づいて止まりQ。その詠唱とほぼ同時に矢も画面に入ってくる
+  "ASH-R-KRZ": (a) => {
+    const edge = pickSideEdge(a);
+    const hook = kritzApproachQ(a, edge, pr(a, "stopDistance"), pr(a, "windupMs"));
+    const arrow0 = ashleyArrow(a, pr(a, "windowMs"));
+    const shift = Math.round(-arrow0.recognitionMs + pr(a, "arrowDelayMs"));
+    return {
+      ...hook,
+      events: [...hook.events, shiftEvent(arrow0.event, shift)],
+      resolveMs: Math.max(hook.resolveMs, arrow0.resolveMs + shift),
+      preLeadMs: Math.max(hook.preLeadMs ?? 0, -shift),
+      variantId: `${edge}-${arrow0.variantId}`,
+      gankers: ["kritz", "ashley"],
+    };
+  },
+
+  // 矢をFlashで避けた直後に、レーンの相手が追撃 (歩いて避けられる予兆の長さ)
+  "ASH-R-FOLLOW": (a) => {
+    const arrow = ashleyArrow(a, pr(a, "windowMs"));
+    const followAt = Math.round(arrow.hitMs + pr(a, "followGapMs"));
+    const moveArgs = { ...a, def: { ...a.def, expectedAction: "MOVE" as const } };
+    const follow = shiftPlan(laneSkill(moveArgs), followAt);
+    // 追撃はFlash後の位置を狙う
+    for (const e of follow.events) if (e.isMainThreat) e.reanchor = true;
+    return {
+      events: [arrow.event, ...follow.events],
+      resolveMs: Math.max(arrow.resolveMs, follow.resolveMs),
+      recognitionMs: Math.floor(arrow.recognitionMs) - 2,
+      followUpMs: followAt,
+      variantId: `${a.ctx.champion ?? "default"}-${arrow.variantId}`,
+      gankers: ["ashley"],
+    };
+  },
 
   // ---- アリ -------------------------------------------------------------------
   "TMM-RE": (a) => {
@@ -923,7 +1052,8 @@ export function generateEncounter(
   return {
     definitionId: def.id,
     champion,
-    ganker: plan.ganker,
+    gankers: plan.gankers,
+    followUpMs: plan.followUpMs !== undefined ? Math.round(threatStart + plan.followUpMs) : undefined,
     name: def.name,
     kind: def.kind,
     seed: rng.seed,

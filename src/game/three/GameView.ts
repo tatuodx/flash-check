@@ -33,6 +33,9 @@ const HOOK_HEIGHT = 14;
 const HOOK_RETRACT_MS = 260;
 const TM = GAME_CONFIG.champions.tamamo;
 const PINK = 0xff6fae;
+/** アッシュリーの氷の矢・凍りつく演出の色 */
+const ICE = 0xbff2ff;
+const ICE_GLOW = 0x5fd0ff;
 
 function active(ev: ScheduledEvent, t: number, durationMs: number): boolean {
   return t >= ev.atMs && t < ev.atMs + durationMs;
@@ -268,6 +271,10 @@ export class GameView {
           this.drawCharm(h, t, vt);
           break;
         }
+        if (p.style === "arrow") {
+          this.drawArrow(h, vt);
+          break;
+        }
         if (h.done) break;
         const tailStart = Math.max(0, h.traveled - p.bodyLength);
         const from = add(h.origin, scale(h.dir, tailStart));
@@ -482,6 +489,49 @@ export class GameView {
     void t;
   }
 
+  /**
+   * アッシュリーの氷の矢: 範囲は表示しない。地面には実際の判定の太さ (幅) で氷の光を落とし、
+   * その上に氷の矢 (柄・矢じり・羽) と、後ろへ流れる冷気の粒を描く。陰の中は描かない (clip)
+   */
+  private drawArrow(h: LineHazard, vt: number): void {
+    if (!h.launched || h.done) return;
+    const p = h.payload;
+    const headD = Math.min(h.traveled, h.maxTravel);
+    const tailD = Math.max(0, headD - p.bodyLength);
+    const head = add(h.origin, scale(h.dir, headD));
+    const tail = add(h.origin, scale(h.dir, tailD));
+    const n = { x: -h.dir.y, y: h.dir.x };
+    const o = this.overlay;
+    // 地面の氷の光 = 実Hitbox (太さを見せる)
+    o.line(tail, head, p.width, ICE_GLOW, 0.28);
+    o.disk(head.x, head.y, p.width / 2, ICE_GLOW, 0.28);
+    o.disk(tail.x, tail.y, p.width / 2, ICE_GLOW, 0.18);
+    const y = PROJECTILE_HEIGHT + 6;
+    // 柄 (長い氷の棒)
+    const shaftEnd = sub(head, scale(h.dir, 22));
+    this.fx.rod(sub(tail, scale(h.dir, 40)), shaftEnd, y, 8, ICE, 0.95);
+    // 矢じり: 先の尖った菱形の氷
+    const back = sub(head, scale(h.dir, 34));
+    for (const s of [-1, 1]) {
+      const wing = add(sub(head, scale(h.dir, 20)), scale(n, 15 * s));
+      this.fx.rod(head, wing, y, 7, 0xe8fbff, 0.95);
+      this.fx.rod(wing, back, y, 6, ICE, 0.9);
+    }
+    this.fx.sphere(head.x, head.y, y, 5, 0xffffff, 0.95);
+    // 羽 (後ろの左右へ開く氷の板)
+    for (const s of [-1, 1]) {
+      const root = sub(tail, scale(h.dir, 30));
+      this.fx.rod(root, add(sub(root, scale(h.dir, 24)), scale(n, 16 * s)), y, 5, ICE, 0.85);
+    }
+    // 光と冷気の粒
+    this.fx.sphere(head.x, head.y, y, 18, ICE_GLOW, 0.35, true);
+    for (let i = 1; i <= 6; i++) {
+      const wob = 7 * Math.sin(vt / 45 + i * 1.7);
+      const b = add(sub(tail, scale(h.dir, 40 + i * 20)), scale(n, wob));
+      this.fx.sphere(b.x, b.y, y + 2 * Math.sin(vt / 60 + i), 8 - i, 0xdff8ff, 0.55 - i * 0.08, true);
+    }
+  }
+
   /** アリの演出: 残りのRの回数を表す狐火 (頭上を回る玉) とRの残像 */
   private drawTamamo(sim: RoundSimulation, enemy: Vec2, vt: number, seen: boolean): void {
     if (!seen) return;
@@ -629,7 +679,7 @@ export class GameView {
     const displaced = showWorld ? sim.hitDisplacement() : null;
     const charmed = displaced?.kind === "charm" && vt - displaced.atMs < displaced.durationMs;
     const moving = showWorld && !displaced ? sim.player.target !== null : charmed;
-    if (displaced) {
+    if (displaced && displaced.kind !== "freeze") {
       // 引き寄せ・魅了中は相手の方を向く
       this.playerYaw = facing(displaced.to.x - displaced.from.x, displaced.to.y - displaced.from.y);
     } else if (moving && sim.player.target) {
@@ -655,6 +705,21 @@ export class GameView {
         const k = ((since / 500 + i / 3) % 1);
         this.fx.sphere(pp.x + (i - 1) * 9, pp.y, 58 + k * 22, 4.5, PINK, 0.9 * (1 - k), true);
       }
+    }
+    if (disp?.kind === "freeze") {
+      // 凍りつく: 氷の塊に閉じ込められ、まわりに氷の棘が立つ。演出の終わりにかけて少し薄れる
+      const k = Math.min(1, Math.max(0, (vt - disp.atMs) / disp.durationMs));
+      const grow = Math.min(1, (vt - disp.atMs) / 120);
+      const a = 1 - 0.35 * k;
+      const r = (PR + 8) * grow;
+      this.fx.box(pp.x - r, pp.y - r, pp.x + r, pp.y + r, 64 * grow, ICE, 0.45 * a);
+      this.fx.sphere(pp.x, pp.y, 30, (PR + 22) * grow, ICE_GLOW, 0.3 * a, true);
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + 0.4;
+        const tip = { x: pp.x + Math.cos(ang) * (PR + 26) * grow, y: pp.y + Math.sin(ang) * (PR + 26) * grow };
+        this.fx.rod({ x: pp.x + Math.cos(ang) * PR, y: pp.y + Math.sin(ang) * PR }, tip, 6 + (i % 2) * 6, 5, 0xe8fbff, 0.8 * a);
+      }
+      o.disk(pp.x, pp.y, (PR + 30) * grow, ICE_GLOW, 0.25 * a);
     }
     o.disk(pp.x, pp.y, PR, C.shadow, 0.35);
     // Player hitbox (白い輪) = 当たり判定の円

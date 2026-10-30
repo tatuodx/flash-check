@@ -44,7 +44,7 @@ export function FinalResult({ result, onPlayAgain, onRetrySeed, onTitle }: Props
               <td className="num">{r.totalScore}</td>
               <td>
                 {championName(r.champion)}
-                {r.ganker === "kritz" && ` + ${GAME_CONFIG.gankers.kritz.name}`}
+                {r.gankers?.map((g) => ` + ${GAME_CONFIG.gankers[g].name}`).join("")}
               </td>
               <td className="enc">
                 {r.encounterId} {r.encounterName}

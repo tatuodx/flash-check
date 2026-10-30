@@ -28,7 +28,7 @@ export function rollChampion(rng: SeededRandom, cfg: GameConfig): ChampionId {
  * ガンク (クリッツブランク) の問題は、レーンの相手が誰でも出せる
  */
 export function championSupports(champion: ChampionId, def: EncounterDefinition): boolean {
-  return champion === "default" || def.ganker !== undefined || REPLACEMENTS[champion][def.id] !== undefined;
+  return champion === "default" || def.gankers !== undefined || REPLACEMENTS[champion][def.id] !== undefined;
 }
 
 /** 問題をその相手の版に差し替える (ガンクの問題はそのまま) */
@@ -36,16 +36,29 @@ export function championVersion(champion: ChampionId, def: EncounterDefinition):
   if (champion === "default") return def;
   const replacement = REPLACEMENTS[champion][def.id];
   if (replacement) return getAnyDefinition(replacement);
-  if (def.ganker !== undefined) return def;
+  if (def.gankers !== undefined) return def;
   throw new Error(`${champion} cannot present ${def.id}`);
 }
 
-/** 10ラウンド分の相手と問題を、相手が出題できる問題だけから抽選する */
+/**
+ * 10ラウンド分の相手と問題を、相手が出題できる問題だけから抽選する。
+ * ガンクのラウンド数は毎ゲーム deck.gankRounds の範囲で抽選し、ガンクを出せるラウンド (Tierが合う) からその数だけ選ぶ
+ */
 export function buildChampionDeck(seed: string, cfg: GameConfig): { def: EncounterDefinition; champion: ChampionId }[] {
   const rng = createRng(`${seed}:deck`);
+  const gankCount = rng.int(...cfg.deck.gankRounds);
+  const gankable = cfg.roundTiers
+    .map((tiers, i) => (ENCOUNTER_DEFINITIONS.some((d) => d.gankers && tiers.includes(d.difficulty)) ? i : -1))
+    .filter((i) => i >= 0);
   for (let attempt = 0; attempt < cfg.deck.maxAttempts; attempt++) {
     const champions = Array.from({ length: cfg.roundCount }, () => rollChampion(rng, cfg));
-    const deck = tryBuildDeck(ENCOUNTER_DEFINITIONS, rng, cfg, (def, i) => championSupports(champions[i], def));
+    const gankRounds = new Set(rng.shuffle(gankable).slice(0, gankCount));
+    const deck = tryBuildDeck(
+      ENCOUNTER_DEFINITIONS,
+      rng,
+      cfg,
+      (def, i) => championSupports(champions[i], def) && (def.gankers !== undefined) === gankRounds.has(i),
+    );
     if (deck) return deck.map((def, i) => ({ def: championVersion(champions[i], def), champion: champions[i] }));
   }
   throw new Error("Could not build a valid deck from the encounter pool");
@@ -75,7 +88,7 @@ export function buildEncounterSequence(seed: string, cfg: GameConfig = GAME_CONF
     const ctx: EncounterGenerationContext = {
       roundIndex: i,
       difficultyBudget: cfg.difficultyBudget[i],
-      prevSideEdge: prev?.kind === "SIDE_GANK" ? prev.sideEdge : undefined,
+      prevSideEdge: prev?.gankers?.includes("kritz") ? prev.sideEdge : undefined,
       champion,
       cfg,
     };

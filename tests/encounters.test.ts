@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { GAME_CONFIG } from "../src/config/balance";
 import { buildDeck, deckViolations } from "../src/domain/encounters/deck";
 import { ENCOUNTER_DEFINITIONS } from "../src/domain/encounters/definitions";
-import { flashSamples, moveSamples, runScripted, validateEncounter } from "../src/domain/encounters/validation";
+import { flashSamples, moveSamples, runScripted, validateEncounter, type ScriptedAction } from "../src/domain/encounters/validation";
+import { add, fromAngle, scale } from "../src/domain/geometry";
 import { createRng } from "../src/domain/rng";
 import { evaluateRound } from "../src/domain/scoring";
-import { buildEncounterSequence, generateValidated } from "../src/domain/session";
+import { buildChampionDeck, buildEncounterSequence, generateValidated } from "../src/domain/session";
 import { simConfigFrom } from "../src/domain/simulation/RoundSimulation";
 
 const sim = simConfigFrom(GAME_CONFIG);
@@ -53,8 +54,18 @@ describe.each(ENCOUNTER_DEFINITIONS.map((d) => [d.id, d] as const))("%s", (_id, 
       expect(idle.survived).toBe(false);
       expect(idle.totalScore).toBe(0);
 
-      const candidates = def.expectedAction === "FLASH" ? flashSamples(enc, GAME_CONFIG) : moveSamples(enc, GAME_CONFIG, 250);
-      const results = candidates.map((a) => evaluateRound(enc, runScripted(enc, sim, [a]).outcome(), GAME_CONFIG.scoring));
+      const candidates: ScriptedAction[][] = (def.expectedAction === "FLASH" ? flashSamples(enc, GAME_CONFIG) : moveSamples(enc, GAME_CONFIG, 250)).map((a) => [a]);
+      if (enc.followUpMs !== undefined) {
+        // 本命をFlashで避けた後に追撃が来る問題: Flash → 追撃を見てから歩く
+        for (const [f] of candidates.slice(0, 36)) {
+          if (f.kind !== "FLASH") continue;
+          for (let i = 0; i < 12; i++) {
+            const target = add(f.cursor, scale(fromAngle((i / 12) * Math.PI * 2), 400));
+            candidates.push([f, { atMs: enc.followUpMs + 350, kind: "MOVE", target }]);
+          }
+        }
+      }
+      const results = candidates.map((a) => evaluateRound(enc, runScripted(enc, sim, a).outcome(), GAME_CONFIG.scoring));
       const best = results.reduce((m, r) => (r.totalScore > m.totalScore ? r : m));
       expect(best.survived).toBe(true);
       expect(best.playerAction).toBe(def.expectedAction);
@@ -95,11 +106,24 @@ describe("session sequence", () => {
     expect(buildEncounterSequence("A")).not.toEqual(buildEncounterSequence("B"));
   });
 
+  it("each game has 2-4 gank rounds, and every count appears", () => {
+    const [lo, hi] = GAME_CONFIG.deck.gankRounds;
+    const seen = new Set<number>();
+    for (let s = 0; s < 60; s++) {
+      const n = buildChampionDeck(`gank-${s}`, GAME_CONFIG).filter((r) => r.def.gankers !== undefined).length;
+      expect(n).toBeGreaterThanOrEqual(lo);
+      expect(n).toBeLessThanOrEqual(hi);
+      seen.add(n);
+    }
+    expect([...seen].sort()).toEqual([2, 3, 4]);
+  });
+
   it("does not repeat side-gank edge on consecutive side-gank rounds", () => {
     for (let s = 0; s < 60; s++) {
       const seq = buildEncounterSequence(`edge-${s}`);
       for (let i = 1; i < seq.length; i++) {
-        if (seq[i].kind === "SIDE_GANK" && seq[i - 1].kind === "SIDE_GANK") {
+        // 上下の陰から来るクリッツブランクのガンク同士 (アッシュリーの矢だけの問題は上下の向きを持たない)
+        if (seq[i].gankers?.includes("kritz") && seq[i - 1].gankers?.includes("kritz")) {
           expect(seq[i].sideEdge).not.toBe(seq[i - 1].sideEdge);
         }
       }

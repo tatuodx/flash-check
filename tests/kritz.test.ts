@@ -34,7 +34,7 @@ describe("クリッツブランク", () => {
   it("Q encounters are gank rounds with the ganker recorded", () => {
     const enc = gen("KRZ-Q", "k-1");
     expect(enc.kind).toBe("SIDE_GANK");
-    expect(enc.ganker).toBe("kritz");
+    expect(enc.gankers).toEqual(["kritz"]);
     const hook = enc.events.find((e) => e.isMainThreat)!;
     expect(hook.payload.type === "LINE_SHOT" && hook.payload.style === "hook" && hook.payload.origin.mode === "GANKER").toBe(true);
   });
@@ -165,8 +165,8 @@ describe("クリッツブランク", () => {
     const all = Array.from({ length: 30 }, (_, i) => buildEncounterSequence(`krz-${i}`)).flat();
     const krz = all.filter((e) => e.definitionId.startsWith("KRZ-"));
     expect(krz.length).toBeGreaterThan(0);
-    for (const e of krz) expect(e.ganker).toBe("kritz");
-    for (const e of all) if (!e.definitionId.startsWith("KRZ-")) expect(e.ganker).toBeUndefined();
+    for (const e of krz) expect(e.gankers).toEqual(["kritz"]);
+    for (const e of all) if (!e.definitionId.startsWith("KRZ-") && !e.definitionId.startsWith("ASH-")) expect(e.gankers).toBeUndefined();
   });
 
   it("a hook hit holds the resolution longer for the pull", () => {
@@ -196,11 +196,11 @@ describe("クリッツブランクの難しい問題 (Tier 3)", () => {
       const def = getAnyDefinition(id);
       expect(def.difficulty).toBe(3);
       expect(def.expectedAction).toBe("FLASH");
-      expect(def.ganker).toBe("kritz");
+      expect(def.gankers).toEqual(["kritz"]);
       for (const champion of CHAMPIONS) {
         for (const budget of [2.5, 3.2]) {
           const enc = genHard(id, champion, `h-${id}-${champion}-${budget}`, budget);
-          expect(enc.ganker).toBe("kritz");
+          expect(enc.gankers).toEqual(["kritz"]);
           expect(validateEncounter(enc, GAME_CONFIG).ok, `${id} ${champion}`).toBe(true);
         }
       }
@@ -255,9 +255,9 @@ describe("クリッツブランクの難しい問題 (Tier 3)", () => {
   });
 
   it("late rounds (9-10) can now be ganks", () => {
-    const tier3 = ENCOUNTER_DEFINITIONS.filter((d) => d.ganker && d.difficulty === 3);
+    const tier3 = ENCOUNTER_DEFINITIONS.filter((d) => d.id.startsWith("KRZ-") && d.difficulty === 3);
     expect(tier3.length).toBe(4);
     const late = Array.from({ length: 60 }, (_, i) => buildEncounterSequence(`late-${i}`).slice(8)).flat();
-    expect(late.some((e) => e.ganker === "kritz")).toBe(true);
+    expect(late.some((e) => e.gankers?.includes("kritz"))).toBe(true);
   });
 });
