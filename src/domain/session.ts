@@ -1,43 +1,29 @@
 import { GAME_CONFIG, type GameConfig } from "../config/balance";
 import { tryBuildDeck } from "./encounters/deck";
-import {
-  ENCOUNTER_DEFINITIONS,
-  getAnyDefinition,
-  TAMAMO_REPLACEMENTS,
-  YONEKURA_REPLACEMENTS,
-} from "./encounters/definitions";
+import { ENCOUNTER_DEFINITIONS, TAMAMO_DEFINITIONS, YONEKURA_DEFINITIONS } from "./encounters/definitions";
 import { generateEncounter, type EncounterGenerationContext } from "./encounters/generators";
 import { validateEncounter } from "./encounters/validation";
 import { createRng, type SeededRandom } from "./rng";
 import type { ChampionId, EncounterDefinition, GeneratedEncounter } from "./types";
 
-const REPLACEMENTS: Record<Exclude<ChampionId, "default">, Record<string, string>> = {
-  yonekura: YONEKURA_REPLACEMENTS,
-  tamamo: TAMAMO_REPLACEMENTS,
+const GANK_DEFINITIONS = ENCOUNTER_DEFINITIONS.filter((d) => d.gankers !== undefined);
+
+/**
+ * 相手ごとに出せる問題。米倉/アリは自分の技の問題とガンクの問題だけで、標準の技は撃たない。
+ * ガンク (クリッツブランク / アッシュリー) の問題はレーンの相手が誰でも出せる
+ */
+const CHAMPION_POOLS: Record<ChampionId, ReadonlySet<string>> = {
+  default: new Set(ENCOUNTER_DEFINITIONS.map((d) => d.id)),
+  yonekura: new Set([...YONEKURA_DEFINITIONS, ...GANK_DEFINITIONS].map((d) => d.id)),
+  tamamo: new Set([...TAMAMO_DEFINITIONS, ...GANK_DEFINITIONS].map((d) => d.id)),
 };
+const ALL_DEFINITIONS = [...ENCOUNTER_DEFINITIONS, ...YONEKURA_DEFINITIONS, ...TAMAMO_DEFINITIONS];
 
 /** ラウンドの相手チャンピオンを抽選する (米倉 / アリ / 標準) */
 export function rollChampion(rng: SeededRandom, cfg: GameConfig): ChampionId {
   const roll = rng.next();
   const { yonekura, tamamo } = cfg.champions.chances;
   return roll < yonekura ? "yonekura" : roll < yonekura + tamamo ? "tamamo" : "default";
-}
-
-/**
- * その相手で出題できる問題か。米倉/アリは自分の技に差し替えた問題だけを出し、標準の技は撃たない。
- * ガンク (クリッツブランク) の問題は、レーンの相手が誰でも出せる
- */
-export function championSupports(champion: ChampionId, def: EncounterDefinition): boolean {
-  return champion === "default" || def.gankers !== undefined || REPLACEMENTS[champion][def.id] !== undefined;
-}
-
-/** 問題をその相手の版に差し替える (ガンクの問題はそのまま) */
-export function championVersion(champion: ChampionId, def: EncounterDefinition): EncounterDefinition {
-  if (champion === "default") return def;
-  const replacement = REPLACEMENTS[champion][def.id];
-  if (replacement) return getAnyDefinition(replacement);
-  if (def.gankers !== undefined) return def;
-  throw new Error(`${champion} cannot present ${def.id}`);
 }
 
 /**
@@ -51,15 +37,23 @@ export function buildChampionDeck(seed: string, cfg: GameConfig): { def: Encount
     .map((tiers, i) => (ENCOUNTER_DEFINITIONS.some((d) => d.gankers && tiers.includes(d.difficulty)) ? i : -1))
     .filter((i) => i >= 0);
   for (let attempt = 0; attempt < cfg.deck.maxAttempts; attempt++) {
-    const champions = Array.from({ length: cfg.roundCount }, () => rollChampion(rng, cfg));
     const gankRounds = new Set(rng.shuffle(gankable).slice(0, gankCount));
-    const deck = tryBuildDeck(
-      ENCOUNTER_DEFINITIONS,
-      rng,
-      cfg,
-      (def, i) => championSupports(champions[i], def) && (def.gankers !== undefined) === gankRounds.has(i),
-    );
-    if (deck) return deck.map((def, i) => ({ def: championVersion(champions[i], def), champion: champions[i] }));
+    const champions: ChampionId[] = [];
+    const deck = tryBuildDeck(ALL_DEFINITIONS, rng, cfg, (i, candidates) => {
+      const fits = candidates.filter((d) => (d.gankers !== undefined) === gankRounds.has(i));
+      // 抽選した相手がこのラウンドに出せる問題を持たなければ、もう一方のキャラ → 標準 の順に代える
+      const rolled = rollChampion(rng, cfg);
+      const order: ChampionId[] =
+        rolled === "default" ? ["default"] : [rolled, rolled === "yonekura" ? "tamamo" : "yonekura", "default"];
+      for (const champion of order) {
+        const options = fits.filter((d) => CHAMPION_POOLS[champion].has(d.id));
+        if (options.length === 0) continue;
+        champions[i] = champion;
+        return rng.pick(options);
+      }
+      return null;
+    });
+    if (deck) return deck.map((def, i) => ({ def, champion: champions[i] }));
   }
   throw new Error("Could not build a valid deck from the encounter pool");
 }

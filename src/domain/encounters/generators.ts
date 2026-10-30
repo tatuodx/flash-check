@@ -16,7 +16,6 @@ import type {
   Range,
   ScheduledEvent,
   Vec2,
-  YoneEPayload,
 } from "../types";
 
 export interface EncounterGenerationContext {
@@ -486,15 +485,6 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
     };
   },
 
-  "ENC-004": (a) => {
-    const cast = pr(a, "castMs");
-    return {
-      events: [side(0, { type: "FAKE_CAST", durationMs: cast })],
-      resolveMs: cast + a.rng.range(1_200, 2_500),
-      recognitionMs: 0,
-    };
-  },
-
   "ENC-008": (a) => {
     const delay = pr(a, "delayMs");
     const offset = fromAngle(a.rng.range(0, Math.PI * 2));
@@ -660,32 +650,6 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
     };
   },
 
-  "ENC-024": (a) => {
-    const { rng, player, ctx } = a;
-    const range = a.def.parameters.fakeCount as Range;
-    const count = rng.int(range[0], range[1]);
-    const kinds = rng.shuffle(["STEP_IN", "FAKE_MARKER", "EDGE_SHADOW"] as const).slice(0, count);
-    const events: ScheduledEvent[] = [];
-    let at = 0;
-    let end = 0;
-    for (const kind of kinds) {
-      if (kind === "STEP_IN") {
-        events.push(side(at, { type: "STEP_IN", distance: rng.range(90, 130), durationMs: 900 }));
-        end = at + 900;
-      } else if (kind === "FAKE_MARKER") {
-        events.push(side(at, { type: "FAKE_MARKER", durationMs: 600 }));
-        end = at + 600;
-      } else {
-        const edge = rng.pick<Edge>(["TOP", "BOTTOM"]);
-        const x = clamp(player.x + rng.range(-120, 120), 60, ctx.cfg.world.width - 60);
-        events.push(side(at, { type: "EDGE_SHADOW", edge, x, durationMs: 500 }));
-        end = at + 500;
-      }
-      at = end + rng.range(1_200, 2_200);
-    }
-    return { events, resolveMs: end + rng.range(1_200, 2_000), recognitionMs: 0 };
-  },
-
   // ---- クリッツブランク ---------------------------------------------------------
   "KRZ-Q": (a) => {
     const edge = pickSideEdge(a);
@@ -695,41 +659,6 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
   },
 
   "KRZ-Q-FAR": (a) => kritzApproachQ(a, pickSideEdge(a), pr(a, "stopDistance"), pr(a, "windupMs")),
-
-  "KRZ-W": (a) => {
-    const { rng, ctx } = a;
-    const k = ctx.cfg.gankers.kritz;
-    const edge = pickSideEdge(a);
-    if (rng.chance(0.5)) {
-      // Wで近づいて止まり、Qを撃たずに陰へ歩いて戻る
-      const wait = pr(a, "waitMs");
-      const first = kritzApproachEvent(a, edge, "RETREAT", pr(a, "stopDistance"));
-      first.payload.leaveAfterMs = first.travelMs + wait;
-      const back = travelMs(first.travelDist, k.walkSpeed);
-      return {
-        events: [side(0, first.payload)],
-        resolveMs: first.travelMs + wait + back + rng.range(600, 1_200),
-        recognitionMs: 0,
-        sideEdge: edge,
-        variantId: `RETREAT-${edge}`,
-        gankers: ["kritz"],
-      };
-    }
-    // Wでレーンを横切って反対側の陰へ (こちらには向かわない)
-    const v = ctx.cfg.world.vision;
-    const cross = v.shadeBottom - v.shadeTop + k.shadeDepth * 2;
-    const travel = travelMs(cross, k.hasteSpeed);
-    return {
-      events: [
-        side(0, { type: "GANKER", ganker: "kritz", route: "PASS", edge, stopAngleRad: 0, stopDistance: 0, spawnDx: pr(a, "passDx"), hasteMs: travel + 300 }),
-      ],
-      resolveMs: travel + rng.range(800, 1_500),
-      recognitionMs: 0,
-      sideEdge: edge,
-      variantId: `PASS-${edge}`,
-      gankers: ["kritz"],
-    };
-  },
 
   // レーンの相手のフェイクに目を向けさせた直後、陰に潜んだままQ
   "KRZ-FAKE-Q": (a) => {
@@ -906,21 +835,6 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
 
   "YNK-ER": (a) => yoneCombo(a, "r"),
 
-  "YNK-E": (a) => {
-    const stay = pr(a, "stayMs");
-    const ev = yoneE(a, 0, pr(a, "eOut"), stay);
-    const p = ev.payload as YoneEPayload;
-    return { events: [ev], resolveMs: p.returnAtMs + p.returnMs + a.rng.range(1_200, 2_200), recognitionMs: 0 };
-  },
-
-  "YNK-E2": (a) => {
-    const first = yoneE(a, 0, pr(a, "eOut"), pr(a, "stayMs"));
-    const p1 = first.payload as YoneEPayload;
-    const secondAt = p1.returnAtMs + p1.returnMs + a.rng.range(1_800, 2_600);
-    const second = yoneE(a, secondAt, pr(a, "eOut"), pr(a, "stayMs"));
-    const p2 = second.payload as YoneEPayload;
-    return { events: [first, second], resolveMs: p2.returnAtMs + p2.returnMs + a.rng.range(1_200, 2_000), recognitionMs: 0 };
-  },
 };
 
 export function hasGenerator(id: string): boolean {

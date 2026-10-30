@@ -38,17 +38,6 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     timingWindow: { excellentMs: 300, goodMs: 500, lateMs: 750 },
     parameters: { radius: [85, 100], delayMs: [1_250, 1_000] },
   },
-  {
-    id: "ENC-004",
-    name: "Harmless Cast",
-    kind: "FAKE_CAST",
-    expectedAction: "WAIT",
-    difficulty: 1,
-    durationRangeMs: [5_000, 10_000],
-    recognitionOffsetMs: 0,
-    timingWindow: { excellentMs: 0, goodMs: 0, lateMs: 0 },
-    parameters: { castMs: [700, 500] },
-  },
   // ---- Tier 2 ----
   {
     id: "ENC-008",
@@ -166,18 +155,6 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 320, goodMs: 480, lateMs: 680 },
     parameters: { stopDistance: [355, 340], windupMs: [300, 280] },
-  },
-  {
-    id: "KRZ-W",
-    name: "クリッツブランク W (近づくだけ)",
-    kind: "SIDE_GANK",
-    gankers: ["kritz"],
-    expectedAction: "WAIT",
-    difficulty: 2,
-    durationRangeMs: [9_000, 15_000],
-    recognitionOffsetMs: 0,
-    timingWindow: { excellentMs: 0, goodMs: 0, lateMs: 0 },
-    parameters: { stopDistance: [370, 340], waitMs: [800, 500], passDx: [380, 330] },
   },
   // 難しいクリッツブランク (Tier 3)
   {
@@ -320,17 +297,6 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
       dashWidth: [80, 90],
     },
   },
-  {
-    id: "ENC-024",
-    name: "Hold Your Flash",
-    kind: "FAKE_CAST",
-    expectedAction: "WAIT",
-    difficulty: 3,
-    durationRangeMs: [12_000, 20_000],
-    recognitionOffsetMs: 0,
-    timingWindow: { excellentMs: 0, goodMs: 0, lateMs: 0 },
-    parameters: { fakeCount: [2, 3] },
-  },
 ];
 
 export function getDefinition(id: string): EncounterDefinition {
@@ -340,7 +306,8 @@ export function getDefinition(id: string): EncounterDefinition {
 }
 
 // ---- 米倉 (相手チャンピオン) の出題 ---------------------------------------------
-// 敵が撃つ攻撃の問題を、米倉のラウンドではこれらに差し替える (YONEKURA_REPLACEMENTS)。
+// 米倉のラウンドでは、この問題とガンクの問題だけを出す。期待行動とTierは、もとにした標準の問題
+// (Q3: ENC-001 / R: ENC-010 / E→Q3: ENC-013 / E→R: ENC-017) に合わせている。
 // Q1/Q2は演出のみで出題しない。Q3は直前にQ1/Q2の演出で「溜まった」ことを見せる。
 
 export const YONEKURA_DEFINITIONS: EncounterDefinition[] = [
@@ -388,40 +355,7 @@ export const YONEKURA_DEFINITIONS: EncounterDefinition[] = [
     timingWindow: { excellentMs: 300, goodMs: 450, lateMs: 650 },
     parameters: { leadMs: [600, 480], speed: [5_000, 5_000], width: [120, 135], eOut: [130, 160], eToSkillMs: [450, 300] },
   },
-  {
-    id: "YNK-E",
-    name: "米倉 E (踏み込みのみ)",
-    kind: "FAKE_CAST",
-    expectedAction: "WAIT",
-    difficulty: 1,
-    durationRangeMs: [5_000, 10_000],
-    recognitionOffsetMs: 0,
-    timingWindow: { excellentMs: 0, goodMs: 0, lateMs: 0 },
-    parameters: { eOut: [130, 160], stayMs: [900, 1_300] },
-  },
-  {
-    id: "YNK-E2",
-    name: "米倉 E を二度見せる",
-    kind: "FAKE_CAST",
-    expectedAction: "WAIT",
-    difficulty: 3,
-    durationRangeMs: [12_000, 20_000],
-    recognitionOffsetMs: 0,
-    timingWindow: { excellentMs: 0, goodMs: 0, lateMs: 0 },
-    parameters: { eOut: [130, 160], stayMs: [900, 1_300] },
-  },
 ];
-
-/** 米倉のラウンドで出す問題 (既定ID -> 米倉ID)。ここにない問題は米倉のラウンドでは出さない (ガンクを除く) */
-export const YONEKURA_REPLACEMENTS: Record<string, string> = {
-  "ENC-001": "YNK-Q3",
-  "ENC-010": "YNK-R",
-  "ENC-013": "YNK-EQ3",
-  "ENC-017": "YNK-ER",
-  "ENC-004": "YNK-E",
-  "ENC-024": "YNK-E2",
-};
-
 
 // ---- アリ (相手チャンピオン) の出題 -----------------------------------------------
 // E (魅了) を出題し、R (最大3回の短いダッシュ、当たり判定なし) で接近とEのタイミングを読みにくくする。
@@ -486,16 +420,6 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
     parameters: { inDistance: [215, 190], backDistance: [315, 300], rGapMs: [800, 400], rToEMs: [400, 100], windupMs: [240, 215] },
   },
 ];
-
-/** アリのラウンドで出す問題 (既定ID -> アリID)。ここにない問題はアリのラウンドでは出さない (ガンクを除く) */
-export const TAMAMO_REPLACEMENTS: Record<string, string> = {
-  "ENC-001": "TMM-RE",
-  "ENC-002": "TMM-E-FAR",
-  "ENC-013": "TMM-RRE",
-  "ENC-015": "TMM-RBACK",
-  "ENC-017": "TMM-RBACK-F",
-};
-
 
 export function getAnyDefinition(id: string): EncounterDefinition {
   const def = [...ENCOUNTER_DEFINITIONS, ...YONEKURA_DEFINITIONS, ...TAMAMO_DEFINITIONS].find((d) => d.id === id);

@@ -223,7 +223,6 @@ export const GAME_CONFIG = {
   deck: {
     minFlash: 3,
     minMove: 2,
-    minWait: 1,
     minSideGank: 1,
     minDirectional: 1,
     maxFake: 2,

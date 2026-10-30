@@ -53,7 +53,8 @@ describe("champion assignment", () => {
 
 describe("米倉 skills", () => {
   it("E: the spirit steps forward, then snaps back to the body; E alone never hits", () => {
-    const enc = gen("YNK-E", "e-1", 1);
+    // E単体の問題 (WAIT) は廃止したので、クリッツブランクの問題のフェイントとして使われるEで確かめる
+    const enc = gen("KRZ-FAKE-Q", "e-1", 3);
     const ev = enc.events.find((e) => e.payload.type === "YONE_E")!;
     if (ev.payload.type !== "YONE_E") throw new Error();
     const s = new RoundSimulation(enc, sim);
@@ -64,9 +65,9 @@ describe("米倉 skills", () => {
     expect(distance(s.enemyPos(), s.player.pos)).toBeGreaterThanOrEqual(Y.eKeepFromPlayer - 1);
     s.advanceTo(ev.payload.returnAtMs + ev.payload.returnMs + 5);
     expect(distance(s.enemyPos(), body)).toBeLessThan(1);
+    // Eそのものは攻撃判定を作らない (当たるのはクリッツブランクのQだけ)
     s.advanceTo(enc.roundDurationMs);
-    expect(s.hit).toBeNull();
-    expect(evaluateRound(enc, s.outcome(), GAME_CONFIG.scoring).label).toBe("GOOD HOLD");
+    expect(s.hazards.every((h) => h.kind === "LINE" && h.payload.style === "hook")).toBe(true);
   });
 
   it("Q3 dashes a fixed distance from where it is cast", () => {

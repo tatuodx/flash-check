@@ -114,42 +114,6 @@ describe("クリッツブランク", () => {
     expect(ok).toBe(true);
   });
 
-  it("W fake (RETREAT): comes into vision, stops, then walks back into the shade without a hook", () => {
-    const enc = genRoute("KRZ-W", "RETREAT");
-    expect(enc.expectedAction).toBe("WAIT");
-    const { ev, p } = gankerEvent(enc);
-    const s = new RoundSimulation(enc, sim);
-    let seen = false;
-    for (let t = ev.atMs; t < ev.atMs + p.leaveAfterMs!; t += 20) {
-      s.advanceTo(t);
-      if (isVisible(s.ganker!.pos, s.player.pos)) seen = true;
-    }
-    expect(seen).toBe(true);
-    s.advanceTo(enc.roundDurationMs);
-    expect(s.hazards).toHaveLength(0);
-    expect(s.hit).toBeNull();
-    expect(distance(s.ganker!.pos, s.ganker!.spawn)).toBeLessThan(1);
-    expect(isVisible(s.ganker!.pos, s.player.pos)).toBe(false);
-  });
-
-  it("W fake (PASS): crosses the lane into the opposite shade, staying away from the player", () => {
-    const enc = genRoute("KRZ-W", "PASS");
-    const s = new RoundSimulation(enc, sim);
-    const { ev } = gankerEvent(enc);
-    s.advanceTo(ev.atMs + 1);
-    const startY = s.ganker!.pos.y;
-    let closest = Infinity;
-    for (let t = ev.atMs; t < enc.roundDurationMs; t += 20) {
-      s.advanceTo(t);
-      closest = Math.min(closest, distance(s.ganker!.pos, s.player.pos));
-    }
-    s.advanceTo(enc.roundDurationMs);
-    expect(Math.sign(s.ganker!.pos.y - 300)).toBe(-Math.sign(startY - 300));
-    expect(isVisible(s.ganker!.pos, s.player.pos)).toBe(false);
-    expect(closest).toBeGreaterThan(300);
-    expect(s.hit).toBeNull();
-  });
-
   it("is deterministic regardless of the input frame step", () => {
     const enc = genRoute("KRZ-Q", "APPROACH");
     const a = new RoundSimulation(enc, sim);
