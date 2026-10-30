@@ -146,6 +146,7 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     id: "KRZ-Q",
     name: "クリッツブランク Q",
     kind: "SIDE_GANK",
+    ganker: "kritz",
     expectedAction: "FLASH",
     difficulty: 2,
     durationRangeMs: [8_000, 14_000],
@@ -158,6 +159,7 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     id: "KRZ-Q-FAR",
     name: "クリッツブランク 遠いQ",
     kind: "SIDE_GANK",
+    ganker: "kritz",
     expectedAction: "MOVE",
     difficulty: 2,
     durationRangeMs: [8_000, 14_000],
@@ -169,12 +171,74 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     id: "KRZ-W",
     name: "クリッツブランク W (近づくだけ)",
     kind: "SIDE_GANK",
+    ganker: "kritz",
     expectedAction: "WAIT",
     difficulty: 2,
     durationRangeMs: [9_000, 15_000],
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 0, goodMs: 0, lateMs: 0 },
     parameters: { stopDistance: [370, 340], waitMs: [800, 500], passDx: [380, 330] },
+  },
+  // 難しいクリッツブランク (Tier 3)
+  {
+    id: "KRZ-FAKE-Q",
+    name: "クリッツブランク 相手のフェイク→陰からQ",
+    kind: "SIDE_GANK",
+    ganker: "kritz",
+    expectedAction: "FLASH",
+    difficulty: 3,
+    durationRangeMs: [10_000, 16_000],
+    recognitionOffsetMs: 0,
+    timingWindow: { excellentMs: 280, goodMs: 420, lateMs: 600 },
+    // レーンの相手のフェイク (標準: 空詠唱 / 米倉: E / アリ: R) の開始から、Qの詠唱開始まで
+    parameters: { fakeToHookMs: [1_000, 600], ambushDistance: [365, 375], windupMs: [220, 200] },
+  },
+  {
+    id: "KRZ-PINCER",
+    name: "クリッツブランク Qと相手の技の挟み撃ち",
+    kind: "DIRECTIONAL_TRAP",
+    ganker: "kritz",
+    expectedAction: "FLASH",
+    difficulty: 3,
+    durationRangeMs: [10_000, 16_000],
+    recognitionOffsetMs: 0,
+    timingWindow: { excellentMs: 280, goodMs: 420, lateMs: 600 },
+    // Q: 止まる距離・詠唱 / 相手の技: Qの詠唱開始からの遅れ・予兆・速さ・幅 (米倉はQ3の速さ・幅)
+    parameters: {
+      stopDistance: [290, 265],
+      windupMs: [240, 215],
+      laneDelayMs: [120, 0],
+      leadMs: [340, 280],
+      speed: [1_100, 1_300],
+      width: [80, 90],
+      dashSpeed: [1_500, 1_700],
+      dashWidth: [80, 90],
+    },
+  },
+  {
+    id: "KRZ-W-HOLD",
+    name: "クリッツブランク W接近→長い間→Q",
+    kind: "SIDE_GANK",
+    ganker: "kritz",
+    expectedAction: "FLASH",
+    difficulty: 3,
+    durationRangeMs: [10_000, 16_000],
+    recognitionOffsetMs: 0,
+    timingWindow: { excellentMs: 280, goodMs: 420, lateMs: 600 },
+    // 止まってからQの詠唱を始めるまで (この範囲で抽選。Wだけのフェイクと見分けにくい長さ)
+    parameters: { stopDistance: [255, 235], holdMs: [1_000, 1_800], windupMs: [220, 200] },
+  },
+  {
+    id: "KRZ-AMBUSH-NEAR",
+    name: "クリッツブランク 陰から近距離Q",
+    kind: "SIDE_GANK",
+    ganker: "kritz",
+    expectedAction: "FLASH",
+    difficulty: 3,
+    durationRangeMs: [8_000, 14_000],
+    recognitionOffsetMs: 0,
+    timingWindow: { excellentMs: 260, goodMs: 400, lateMs: 560 },
+    parameters: { ambushDistance: [350, 335], windupMs: [220, 200] },
   },
   {
     id: "ENC-024",
@@ -268,7 +332,7 @@ export const YONEKURA_DEFINITIONS: EncounterDefinition[] = [
   },
 ];
 
-/** 米倉のラウンドで差し替える問題 (既定ID -> 米倉ID)。ここにない「敵が撃つMOVE問題」は既定の敵のまま */
+/** 米倉のラウンドで出す問題 (既定ID -> 米倉ID)。ここにない問題は米倉のラウンドでは出さない (ガンクを除く) */
 export const YONEKURA_REPLACEMENTS: Record<string, string> = {
   "ENC-001": "YNK-Q3",
   "ENC-010": "YNK-R",
@@ -278,8 +342,6 @@ export const YONEKURA_REPLACEMENTS: Record<string, string> = {
   "ENC-024": "YNK-E2",
 };
 
-/** 米倉では出題できない問題 (Q1/Q2を出題しない方針のため、敵が撃つMOVE問題) */
-export const YONEKURA_UNSUPPORTED = new Set(["ENC-002", "ENC-015"]);
 
 // ---- アリ (相手チャンピオン) の出題 -----------------------------------------------
 // E (魅了) を出題し、R (最大3回の短いダッシュ、当たり判定なし) で接近とEのタイミングを読みにくくする。
@@ -345,7 +407,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
   },
 ];
 
-/** アリのラウンドで差し替える問題 (既定ID -> アリID) */
+/** アリのラウンドで出す問題 (既定ID -> アリID)。ここにない問題はアリのラウンドでは出さない (ガンクを除く) */
 export const TAMAMO_REPLACEMENTS: Record<string, string> = {
   "ENC-001": "TMM-RE",
   "ENC-002": "TMM-E-FAR",
@@ -354,8 +416,6 @@ export const TAMAMO_REPLACEMENTS: Record<string, string> = {
   "ENC-017": "TMM-RBACK-F",
 };
 
-/** アリでは出題しない問題 (Rだけのフェイクは作らない方針のためWAIT問題、Eで再現しない突進) */
-export const TAMAMO_UNSUPPORTED = new Set(["ENC-004", "ENC-024", "ENC-010"]);
 
 export function getAnyDefinition(id: string): EncounterDefinition {
   const def = [...ENCOUNTER_DEFINITIONS, ...YONEKURA_DEFINITIONS, ...TAMAMO_DEFINITIONS].find((d) => d.id === id);

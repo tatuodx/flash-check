@@ -41,6 +41,8 @@ export interface EncounterDefinition {
   recognitionOffsetMs: number;
   timingWindow: TimingWindow;
   parameters: Record<string, unknown>;
+  /** ガンク専用の敵の問題 (レーンの相手が誰でも出題できる) */
+  ganker?: GankerId;
 }
 
 // ---- Scheduled events -------------------------------------------------------

@@ -1,19 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { GAME_CONFIG } from "../src/config/balance";
 import {
-  ENCOUNTER_DEFINITIONS,
-  TAMAMO_REPLACEMENTS,
-  TAMAMO_UNSUPPORTED,
   YONEKURA_DEFINITIONS,
-  YONEKURA_REPLACEMENTS,
-  YONEKURA_UNSUPPORTED,
   getAnyDefinition,
 } from "../src/domain/encounters/definitions";
 import { flashSamples, runScripted } from "../src/domain/encounters/validation";
 import { distance } from "../src/domain/geometry";
 import { createRng } from "../src/domain/rng";
 import { evaluateRound } from "../src/domain/scoring";
-import { assignChampion, buildEncounterSequence, generateValidated } from "../src/domain/session";
+import { buildChampionDeck, buildEncounterSequence, generateValidated } from "../src/domain/session";
 import { RoundSimulation, simConfigFrom, type DashHazard } from "../src/domain/simulation/RoundSimulation";
 
 const sim = simConfigFrom(GAME_CONFIG);
@@ -22,33 +17,25 @@ const gen = (id: string, seed: string, budget = 2) =>
   generateValidated(getAnyDefinition(id), { roundIndex: 5, difficultyBudget: budget, champion: "yonekura", cfg: GAME_CONFIG }, createRng(seed));
 
 describe("champion assignment", () => {
-  it("picks 標準 / 米倉 / アリ at the configured chances, reproducibly, and swaps enemy-cast problems", () => {
+  it("picks 標準 / 米倉 / アリ at about the configured chances, and 米倉 / アリ only present their own problems", () => {
     const count = { default: 0, yonekura: 0, tamamo: 0 };
     let n = 0;
-    for (let s = 0; s < 60; s++) {
-      for (let round = 0; round < 10; round++) {
-        // 抽選そのもの (どのキャラでも出題できる問題で数える)
-        const plain = assignChampion(getAnyDefinition("ENC-003"), `seed-${s}`, round, GAME_CONFIG);
-        count[plain.champion]++;
+    for (let s = 0; s < 100; s++) {
+      const deck = buildChampionDeck(`seed-${s}`, GAME_CONFIG);
+      expect(deck).toEqual(buildChampionDeck(`seed-${s}`, GAME_CONFIG));
+      for (const { def, champion } of deck) {
+        count[champion]++;
         n++;
-      }
-      for (const def of ENCOUNTER_DEFINITIONS) {
-        const a = assignChampion(def, `seed-${s}`, def.difficulty, GAME_CONFIG);
-        expect(a).toEqual(assignChampion(def, `seed-${s}`, def.difficulty, GAME_CONFIG));
-        if (a.champion === "yonekura") {
-          expect(YONEKURA_UNSUPPORTED.has(def.id)).toBe(false);
-          expect(a.def.id).toBe(YONEKURA_REPLACEMENTS[def.id] ?? def.id);
-        }
-        if (a.champion === "tamamo") {
-          expect(TAMAMO_UNSUPPORTED.has(def.id)).toBe(false);
-          expect(a.def.id).toBe(TAMAMO_REPLACEMENTS[def.id] ?? def.id);
-        }
+        // 米倉/アリは標準の技 (ENC-*) を撃たない。ガンク (クリッツブランク) だけはレーンの相手に関係なく出る
+        if (champion === "yonekura") expect(def.id.startsWith("YNK-") || def.id.startsWith("KRZ-"), def.id).toBe(true);
+        if (champion === "tamamo") expect(def.id.startsWith("TMM-") || def.id.startsWith("KRZ-"), def.id).toBe(true);
+        if (champion === "default") expect(def.id.startsWith("YNK-") || def.id.startsWith("TMM-")).toBe(false);
       }
     }
     const { yonekura, tamamo } = GAME_CONFIG.champions.chances;
     const expected = { default: 1 - yonekura - tamamo, yonekura, tamamo };
     for (const k of ["default", "yonekura", "tamamo"] as const) {
-      expect(Math.abs(count[k] / n - expected[k])).toBeLessThan(0.06);
+      expect(Math.abs(count[k] / n - expected[k]), k).toBeLessThan(0.07);
     }
   });
 

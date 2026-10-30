@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { GAME_CONFIG } from "../src/config/balance";
-import { getAnyDefinition } from "../src/domain/encounters/definitions";
-import { runScripted } from "../src/domain/encounters/validation";
+import { ENCOUNTER_DEFINITIONS, getAnyDefinition } from "../src/domain/encounters/definitions";
+import { runScripted, validateEncounter } from "../src/domain/encounters/validation";
 import { isVisible } from "../src/domain/fieldLayout";
 import { distance } from "../src/domain/geometry";
 import { createRng } from "../src/domain/rng";
 import { buildEncounterSequence, generateValidated } from "../src/domain/session";
 import { RoundSimulation, simConfigFrom } from "../src/domain/simulation/RoundSimulation";
-import type { GeneratedEncounter, RoundPhase } from "../src/domain/types";
+import type { ChampionId, GeneratedEncounter, RoundPhase } from "../src/domain/types";
 import { RoundSystem } from "../src/game/systems/RoundSystem";
 
 const sim = simConfigFrom(GAME_CONFIG);
@@ -182,5 +182,82 @@ describe("クリッツブランク", () => {
     const res = phases.find((x) => x.p === "RESOLUTION")!;
     const result = phases.find((x) => x.p === "RESULT")!;
     expect(result.at - res.at).toBeGreaterThanOrEqual(GAME_CONFIG.phases.resolutionMs + K.pullMs - 10);
+  });
+});
+
+describe("クリッツブランクの難しい問題 (Tier 3)", () => {
+  const HARD = ["KRZ-FAKE-Q", "KRZ-PINCER", "KRZ-W-HOLD", "KRZ-AMBUSH-NEAR"];
+  const CHAMPIONS: ChampionId[] = ["default", "yonekura", "tamamo"];
+  const genHard = (id: string, champion: ChampionId, seed: string, budget = 3.2) =>
+    generateValidated(getAnyDefinition(id), { roundIndex: 8, difficultyBudget: budget, champion, cfg: GAME_CONFIG }, createRng(seed));
+
+  it("are Tier 3 FLASH gank problems that validate against every lane opponent", () => {
+    for (const id of HARD) {
+      const def = getAnyDefinition(id);
+      expect(def.difficulty).toBe(3);
+      expect(def.expectedAction).toBe("FLASH");
+      expect(def.ganker).toBe("kritz");
+      for (const champion of CHAMPIONS) {
+        for (const budget of [2.5, 3.2]) {
+          const enc = genHard(id, champion, `h-${id}-${champion}-${budget}`, budget);
+          expect(enc.ganker).toBe("kritz");
+          expect(validateEncounter(enc, GAME_CONFIG).ok, `${id} ${champion}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("FAKE-Q: the lane opponent's own harmless fake comes first, then the hook from the shade", () => {
+    const fakeType = { default: "FAKE_CAST", yonekura: "YONE_E", tamamo: "TAMAMO_R" } as const;
+    for (const champion of CHAMPIONS) {
+      const enc = genHard("KRZ-FAKE-Q", champion, `fq-${champion}`);
+      const fake = enc.events.find((e) => e.payload.type === fakeType[champion])!;
+      expect(fake, champion).toBeDefined();
+      expect(fake.isMainThreat).toBe(false);
+      expect(fake.atMs).toBeLessThan(enc.threatStartMs);
+      const s = runScripted(enc, sim, []);
+      expect(s.hitDisplacement()?.kind).toBe("hook");
+    }
+  });
+
+  it("PINCER: the hook and the lane opponent's skill are both real threats", () => {
+    for (const champion of CHAMPIONS) {
+      const enc = genHard("KRZ-PINCER", champion, `p-${champion}`);
+      const mains = enc.events.filter((e) => e.isMainThreat);
+      expect(mains.length, champion).toBe(2);
+      expect(mains.some((e) => e.payload.type === "LINE_SHOT" && e.payload.style === "hook")).toBe(true);
+      expect(enc.kind).toBe("DIRECTIONAL_TRAP");
+    }
+  });
+
+  it("W-HOLD: stops in vision and waits at least a second before the hook", () => {
+    const enc = genHard("KRZ-W-HOLD", "default", "wh-1");
+    const { ev, p } = gankerEvent(enc);
+    expect(p.route).toBe("APPROACH");
+    const s = new RoundSimulation(enc, sim);
+    // 止まる位置に着いた時刻を探し、そこからQの詠唱までの間を測る
+    let stoppedAt = -1;
+    for (let t = ev.atMs + 50; t < enc.threatStartMs; t += 10) {
+      s.advanceTo(t);
+      if (!s.ganker!.moving && stoppedAt < 0) stoppedAt = t;
+    }
+    expect(stoppedAt).toBeGreaterThan(0);
+    expect(enc.threatStartMs - stoppedAt).toBeGreaterThanOrEqual(1_000 - 20);
+    expect(isVisible(s.ganker!.pos, s.player.pos)).toBe(true);
+  });
+
+  it("AMBUSH-NEAR leaves less time than the normal shade hook", () => {
+    const window = (id: string, seed: string) => {
+      const enc = id === "KRZ-Q" ? genRoute("KRZ-Q", "AMBUSH") : genHard(id, "default", seed);
+      return runScripted(enc, sim, []).hit!.atMs - enc.recognitionMs;
+    };
+    expect(window("KRZ-AMBUSH-NEAR", "an-1")).toBeLessThan(window("KRZ-Q", ""));
+  });
+
+  it("late rounds (9-10) can now be ganks", () => {
+    const tier3 = ENCOUNTER_DEFINITIONS.filter((d) => d.ganker && d.difficulty === 3);
+    expect(tier3.length).toBe(4);
+    const late = Array.from({ length: 60 }, (_, i) => buildEncounterSequence(`late-${i}`).slice(8)).flat();
+    expect(late.some((e) => e.ganker === "kritz")).toBe(true);
   });
 });

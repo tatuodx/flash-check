@@ -1,33 +1,54 @@
 import { GAME_CONFIG, type GameConfig } from "../config/balance";
-import { buildDeck } from "./encounters/deck";
+import { tryBuildDeck } from "./encounters/deck";
 import {
   ENCOUNTER_DEFINITIONS,
   getAnyDefinition,
   TAMAMO_REPLACEMENTS,
-  TAMAMO_UNSUPPORTED,
   YONEKURA_REPLACEMENTS,
-  YONEKURA_UNSUPPORTED,
 } from "./encounters/definitions";
 import { generateEncounter, type EncounterGenerationContext } from "./encounters/generators";
 import { validateEncounter } from "./encounters/validation";
 import { createRng, type SeededRandom } from "./rng";
 import type { ChampionId, EncounterDefinition, GeneratedEncounter } from "./types";
 
-/**
- * ラウンドの相手チャンピオンを抽選し、米倉/アリなら敵が撃つ攻撃の問題をそのキャラ版に差し替える。
- * そのキャラで出題できない問題 (UNSUPPORTED) なら既定の敵のまま。
- */
-export function assignChampion(def: EncounterDefinition, seed: string, roundIndex: number, cfg: GameConfig): { def: EncounterDefinition; champion: ChampionId } {
-  const roll = createRng(`${seed}:champion:${roundIndex}`).next();
+const REPLACEMENTS: Record<Exclude<ChampionId, "default">, Record<string, string>> = {
+  yonekura: YONEKURA_REPLACEMENTS,
+  tamamo: TAMAMO_REPLACEMENTS,
+};
+
+/** ラウンドの相手チャンピオンを抽選する (米倉 / アリ / 標準) */
+export function rollChampion(rng: SeededRandom, cfg: GameConfig): ChampionId {
+  const roll = rng.next();
   const { yonekura, tamamo } = cfg.champions.chances;
-  const pick: ChampionId = roll < yonekura ? "yonekura" : roll < yonekura + tamamo ? "tamamo" : "default";
-  const table = {
-    yonekura: { unsupported: YONEKURA_UNSUPPORTED, replacements: YONEKURA_REPLACEMENTS },
-    tamamo: { unsupported: TAMAMO_UNSUPPORTED, replacements: TAMAMO_REPLACEMENTS },
-  } as const;
-  if (pick === "default" || table[pick].unsupported.has(def.id)) return { def, champion: "default" };
-  const replacement = table[pick].replacements[def.id];
-  return { def: replacement ? getAnyDefinition(replacement) : def, champion: pick };
+  return roll < yonekura ? "yonekura" : roll < yonekura + tamamo ? "tamamo" : "default";
+}
+
+/**
+ * その相手で出題できる問題か。米倉/アリは自分の技に差し替えた問題だけを出し、標準の技は撃たない。
+ * ガンク (クリッツブランク) の問題は、レーンの相手が誰でも出せる
+ */
+export function championSupports(champion: ChampionId, def: EncounterDefinition): boolean {
+  return champion === "default" || def.ganker !== undefined || REPLACEMENTS[champion][def.id] !== undefined;
+}
+
+/** 問題をその相手の版に差し替える (ガンクの問題はそのまま) */
+export function championVersion(champion: ChampionId, def: EncounterDefinition): EncounterDefinition {
+  if (champion === "default") return def;
+  const replacement = REPLACEMENTS[champion][def.id];
+  if (replacement) return getAnyDefinition(replacement);
+  if (def.ganker !== undefined) return def;
+  throw new Error(`${champion} cannot present ${def.id}`);
+}
+
+/** 10ラウンド分の相手と問題を、相手が出題できる問題だけから抽選する */
+export function buildChampionDeck(seed: string, cfg: GameConfig): { def: EncounterDefinition; champion: ChampionId }[] {
+  const rng = createRng(`${seed}:deck`);
+  for (let attempt = 0; attempt < cfg.deck.maxAttempts; attempt++) {
+    const champions = Array.from({ length: cfg.roundCount }, () => rollChampion(rng, cfg));
+    const deck = tryBuildDeck(ENCOUNTER_DEFINITIONS, rng, cfg, (def, i) => championSupports(champions[i], def));
+    if (deck) return deck.map((def, i) => ({ def: championVersion(champions[i], def), champion: champions[i] }));
+  }
+  throw new Error("Could not build a valid deck from the encounter pool");
 }
 
 /** 生成 -> Validation を繰り返し、回避可能な問題だけを返す */
@@ -48,11 +69,9 @@ export function generateValidated(
 }
 
 export function buildEncounterSequence(seed: string, cfg: GameConfig = GAME_CONFIG): GeneratedEncounter[] {
-  const deck = buildDeck(ENCOUNTER_DEFINITIONS, createRng(`${seed}:deck`), cfg);
   const out: GeneratedEncounter[] = [];
-  deck.forEach((deckDef, i) => {
+  buildChampionDeck(seed, cfg).forEach(({ def, champion }, i) => {
     const prev = out[i - 1];
-    const { def, champion } = assignChampion(deckDef, seed, i, cfg);
     const ctx: EncounterGenerationContext = {
       roundIndex: i,
       difficultyBudget: cfg.difficultyBudget[i],

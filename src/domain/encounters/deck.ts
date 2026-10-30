@@ -28,20 +28,35 @@ export function deckViolations(deck: readonly EncounterDefinition[], cfg: GameCo
 /** 09_ENCOUNTER_CATALOG 8章のカテゴリ保証/重複制御を満たす10ラウンドのデッキを抽選する */
 export function buildDeck(pool: readonly EncounterDefinition[], rng: SeededRandom, cfg: GameConfig): EncounterDefinition[] {
   for (let attempt = 0; attempt < cfg.deck.maxAttempts; attempt++) {
-    const deck: EncounterDefinition[] = [];
-    for (let i = 0; i < cfg.roundCount; i++) {
-      const tiers = cfg.roundTiers[i];
-      const prev = deck[i - 1];
-      const candidates = pool.filter(
-        (e) =>
-          tiers.includes(e.difficulty) &&
-          !deck.some((d) => d.id === e.id) &&
-          !(prev && prev.expectedAction === "WAIT" && e.expectedAction === "WAIT"),
-      );
-      if (candidates.length === 0) break;
-      deck.push(rng.pick(candidates));
-    }
-    if (deck.length === cfg.roundCount && deckViolations(deck, cfg).length === 0) return deck;
+    const deck = tryBuildDeck(pool, rng, cfg);
+    if (deck) return deck;
   }
   throw new Error("Could not build a valid deck from the encounter pool");
+}
+
+/**
+ * デッキを1回だけ抽選する。満たせなければ null。
+ * allow でラウンドごとに出題できる問題を絞れる (相手チャンピオンが出題できる問題だけにする等)
+ */
+export function tryBuildDeck(
+  pool: readonly EncounterDefinition[],
+  rng: SeededRandom,
+  cfg: GameConfig,
+  allow: (def: EncounterDefinition, roundIndex: number) => boolean = () => true,
+): EncounterDefinition[] | null {
+  const deck: EncounterDefinition[] = [];
+  for (let i = 0; i < cfg.roundCount; i++) {
+    const tiers = cfg.roundTiers[i];
+    const prev = deck[i - 1];
+    const candidates = pool.filter(
+      (e) =>
+        tiers.includes(e.difficulty) &&
+        allow(e, i) &&
+        !deck.some((d) => d.id === e.id) &&
+        !(prev && prev.expectedAction === "WAIT" && e.expectedAction === "WAIT"),
+    );
+    if (candidates.length === 0) return null;
+    deck.push(rng.pick(candidates));
+  }
+  return deckViolations(deck, cfg).length === 0 ? deck : null;
 }

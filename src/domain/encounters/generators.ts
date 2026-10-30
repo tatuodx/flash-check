@@ -319,10 +319,11 @@ function kritzHook(a: BuildArgs, windupMs: number): ScheduledEvent {
 }
 
 /** Wで近づいて止まり、少し間をおいてQ */
-function kritzApproachQ(a: BuildArgs, edge: Edge, stopDistance: number, windupMs: number): ThreatPlan {
+function kritzApproachQ(a: BuildArgs, edge: Edge, stopDistance: number, windupMs: number, pauseMs?: number): ThreatPlan {
   const k = a.ctx.cfg.gankers.kritz;
   const { payload, travelMs: travel } = kritzApproachEvent(a, edge, "APPROACH", stopDistance);
-  const appearAt = -(travel + a.rng.range(150, 300));
+  // 止まってからQの詠唱を始めるまで
+  const appearAt = -(travel + (pauseMs ?? a.rng.range(150, 300)));
   return {
     events: [side(appearAt, payload), kritzHook(a, windupMs)],
     resolveMs: windupMs + travelMs(k.qRange + k.qHeadLength, k.qSpeed),
@@ -356,6 +357,44 @@ function kritzAmbushQ(a: BuildArgs, edge: Edge, hideDistance: number, windupMs: 
     variantId: `AMBUSH-${edge}`,
     ganker: "kritz",
   };
+}
+
+/** プランを dt だけ後ろへずらす */
+function shiftPlan(plan: ThreatPlan, dt: number): ThreatPlan {
+  return { ...plan, events: plan.events.map((e) => shiftEvent(e, dt)), resolveMs: plan.resolveMs + dt };
+}
+
+/** レーンの相手のフェイク (当たり判定なし)。標準: 空詠唱 / 米倉: Eで踏み込んで戻る / アリ: Rで近づく */
+function laneFake(a: BuildArgs, at: number): ScheduledEvent {
+  const { rng } = a;
+  switch (a.ctx.champion ?? "default") {
+    case "yonekura":
+      return yoneE(a, at, 130, 500);
+    case "tamamo":
+      return tamamoR(at, rng.range(190, 230), rng.sign() * rng.range(0, 0.4));
+    default:
+      return side(at, { type: "FAKE_CAST", durationMs: 500 });
+  }
+}
+
+/** レーンの相手の本命の技 (T=0 から)。標準: 直線 / 米倉: Q3 / アリ: Rで近づいてE */
+function laneSkill(a: BuildArgs): ThreatPlan {
+  switch (a.ctx.champion ?? "default") {
+    case "yonekura": {
+      const speed = pr(a, "dashSpeed");
+      const width = pr(a, "dashWidth");
+      const dashArgs = { ...a, def: { ...a.def, parameters: { ...a.def.parameters, speed: [speed, speed], width: [width, width] } } };
+      return yoneDash(dashArgs, "q3", Math.max(pr(a, "leadMs"), enemyMinLeadMs(a, speed, width / 2)), 0);
+    }
+    case "tamamo": {
+      // Eは遅いので、直前にRで近づいてからEを撃ち、Qとほぼ同時に届くようにする
+      const d = a.rng.range(195, 225);
+      const r = tamamoR(-(tamamoRMaxMs(a) + a.rng.range(80, 200)), d, a.rng.sign() * a.rng.range(0, 0.4));
+      return tamamoEPlan(a, tamamoWindup(a, pr(a, "leadMs"), d - 15), [r]);
+    }
+    default:
+      return enemyLine(a, pr(a, "leadMs"), pr(a, "speed"), pr(a, "width"));
+  }
 }
 
 const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
@@ -616,6 +655,42 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
       ganker: "kritz",
     };
   },
+
+  // レーンの相手のフェイクに目を向けさせた直後、陰に潜んだままQ
+  "KRZ-FAKE-Q": (a) => {
+    const edge = pickSideEdge(a);
+    const plan = kritzAmbushQ(a, edge, pr(a, "ambushDistance"), pr(a, "windupMs"));
+    const fakeAt = -pr(a, "fakeToHookMs");
+    plan.events.push(laneFake(a, fakeAt));
+    plan.preLeadMs = Math.max(plan.preLeadMs ?? 0, -fakeAt);
+    plan.variantId = `${a.ctx.champion ?? "default"}-${edge}`;
+    return plan;
+  },
+
+  // Wで近づいて止まったクリッツブランクのQと、レーンの相手の技がほぼ同時に来る。逃げられる向きが限られる
+  "KRZ-PINCER": (a) => {
+    const edge = pickSideEdge(a);
+    const hook = kritzApproachQ(a, edge, pr(a, "stopDistance"), pr(a, "windupMs"));
+    const lane = shiftPlan(laneSkill(a), Math.round(pr(a, "laneDelayMs")));
+    return {
+      ...hook,
+      events: [...hook.events, ...lane.events],
+      resolveMs: Math.max(hook.resolveMs, lane.resolveMs),
+      preLeadMs: Math.max(hook.preLeadMs ?? 0, lane.preLeadMs ?? 0),
+      variantId: `${a.ctx.champion ?? "default"}-${edge}`,
+    };
+  },
+
+  // Wで近づいて止まり、Wだけのフェイク (KRZ-W) と同じくらい様子を見てから近距離でQ
+  "KRZ-W-HOLD": (a) => {
+    const edge = pickSideEdge(a);
+    const plan = kritzApproachQ(a, edge, pr(a, "stopDistance"), pr(a, "windupMs"), a.rng.range(...(a.def.parameters.holdMs as Range)));
+    plan.variantId = `HOLD-${edge}`;
+    return plan;
+  },
+
+  // 陰の境界に近い位置から短い距離でQ。鎖が見えてから当たるまでが短い
+  "KRZ-AMBUSH-NEAR": (a) => kritzAmbushQ(a, pickSideEdge(a), pr(a, "ambushDistance"), pr(a, "windupMs")),
 
   // ---- アリ -------------------------------------------------------------------
   "TMM-RE": (a) => {
