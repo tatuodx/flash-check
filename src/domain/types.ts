@@ -15,7 +15,7 @@ export type EncounterKind =
 
 export type Edge = "TOP" | "BOTTOM";
 
-/** 相手チャンピオン。default = 初期の敵、yonekura = 米倉 (二刀の剣士モチーフ)、tamamo = 玉藻 (九尾の狐モチーフ) */
+/** 相手チャンピオン。default = 初期の敵、yonekura = 米倉 (二刀の剣士モチーフ)、tamamo = アリ (九尾の狐モチーフ) */
 export type ChampionId = "default" | "yonekura" | "tamamo";
 
 /** ガンク専用の敵 (レーンの相手とは別に横から来る)。kritz = クリッツブランク (蒸気ロボのグラブ使いモチーフ) */
@@ -75,7 +75,7 @@ export interface LineShotPayload {
   enemyCast: boolean;
   /**
    * 見た目: hook = クリッツブランクのQ (範囲を表示せず、腕と鎖だけが見える)
-   * / charm = 玉藻のE (範囲を表示せず、飛んでいくハートだけが見える)
+   * / charm = アリのE (範囲を表示せず、飛んでいくハートだけが見える)
    */
   style?: "hook" | "charm";
 }
@@ -180,8 +180,8 @@ export interface GankerPayload {
 }
 
 /**
- * 玉藻R: 当たり判定のない短いダッシュ (1ラウンド最大3回)。
- * 着地点は実行時に「Player -> 玉藻 の向きを bearingRad 回した方向・Playerから toDistance」とし、
+ * アリR: 当たり判定のない短いダッシュ (1ラウンド最大3回)。
+ * 着地点は実行時に「Player -> アリ の向きを bearingRad 回した方向・Playerから toDistance」とし、
  * 届かない場合は最大距離だけ進む
  */
 export interface TamamoRPayload {

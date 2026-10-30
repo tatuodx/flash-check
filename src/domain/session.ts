@@ -14,7 +14,7 @@ import { createRng, type SeededRandom } from "./rng";
 import type { ChampionId, EncounterDefinition, GeneratedEncounter } from "./types";
 
 /**
- * ラウンドの相手チャンピオンを抽選し、米倉/玉藻なら敵が撃つ攻撃の問題をそのキャラ版に差し替える。
+ * ラウンドの相手チャンピオンを抽選し、米倉/アリなら敵が撃つ攻撃の問題をそのキャラ版に差し替える。
  * そのキャラで出題できない問題 (UNSUPPORTED) なら既定の敵のまま。
  */
 export function assignChampion(def: EncounterDefinition, seed: string, roundIndex: number, cfg: GameConfig): { def: EncounterDefinition; champion: ChampionId } {

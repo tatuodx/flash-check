@@ -225,7 +225,7 @@ export class RoundSimulation {
   yoneE: { atMs: number; outMs: number; body: Vec2; out: Vec2; returnAtMs: number; returnMs: number; returnFrom: Vec2 | null } | null = null;
   /** ガンク役 (出現前は null) */
   ganker: GankerState | null = null;
-  /** 玉藻R: ダッシュ中の区間 (着地後は null) と、このラウンドで使った回数 */
+  /** アリR: ダッシュ中の区間 (着地後は null) と、このラウンドで使った回数 */
   tamamoR: { atMs: number; from: Vec2; to: Vec2; endMs: number } | null = null;
   tamamoRUsed = 0;
 
@@ -446,7 +446,7 @@ export class RoundSimulation {
       switch (h.kind) {
         case "LINE": {
           if (h.payload.style === "charm") {
-            // 玉藻のEは範囲を表示しない: 詠唱する本人か、飛んでいくハートが見えているか
+            // アリのEは範囲を表示しない: 詠唱する本人か、飛んでいくハートが見えているか
             if (!h.launched && seen(h.origin)) return true;
             if (h.launched) {
               const tail = Math.max(0, h.traveled - h.payload.bodyLength);
@@ -546,7 +546,7 @@ export class RoundSimulation {
   private updateEnemy(dtMs: number): void {
     const r = this.tamamoR;
     if (r && this.t >= r.atMs) {
-      // 玉藻R: ダッシュ中は移動AIを止め、着地したらその場所から再開する
+      // アリR: ダッシュ中は移動AIを止め、着地したらその場所から再開する
       this.enemy.target = null;
       if (this.t < r.endMs) {
         this.enemy.pos = this.enemyPos();
@@ -815,9 +815,9 @@ export class RoundSimulation {
     }
   }
 
-  // ---- 玉藻 -------------------------------------------------------------------
+  // ---- アリ -------------------------------------------------------------------
 
-  /** 玉藻R: 着地点へ向かって最大 rMaxLength だけダッシュする (回数を使い切ったら何もしない) */
+  /** アリR: 着地点へ向かって最大 rMaxLength だけダッシュする (回数を使い切ったら何もしない) */
   private castTamamoR(atMs: number, toDistance: number, bearingRad: number): void {
     const tm = this.cfg.tamamo;
     if (this.tamamoRUsed >= tm.rCharges) return;
@@ -859,7 +859,7 @@ export class RoundSimulation {
 
   /**
    * 被弾後に自分のキャラが動かされる演出 (採点には影響しない)。
-   * クリッツブランクのQ = 本人の前まで引き寄せ / 玉藻のE = 魅了されて玉藻の方へ歩かされる
+   * クリッツブランクのQ = 本人の前まで引き寄せ / アリのE = 魅了されてアリの方へ歩かされる
    */
   hitDisplacement(): { kind: "hook" | "charm"; from: Vec2; to: Vec2; atMs: number; durationMs: number } | null {
     const hook = this.hookPull();

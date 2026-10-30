@@ -89,7 +89,7 @@ export const GAME_CONFIG = {
       eKeepFromPlayer: 110,
     },
     tamamo: {
-      name: "玉藻",
+      name: "アリ",
       /** R: 1ラウンドの最大回数・1回の最大距離・速さ (当たり判定なし) */
       rCharges: 3,
       rMaxLength: 230,
@@ -101,7 +101,7 @@ export const GAME_CONFIG = {
       eSpeed: 750,
       eWidth: 60,
       eBodyLength: 30,
-      /** 魅了されたとき、玉藻の方へ歩かされる演出の長さと速さ */
+      /** 魅了されたとき、アリの方へ歩かされる演出の長さと速さ */
       charmMs: 600,
       charmSpeed: 70,
     },

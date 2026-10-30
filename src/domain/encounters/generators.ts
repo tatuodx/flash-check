@@ -84,10 +84,6 @@ function side(atMs: number, payload: EventPayload): ScheduledEvent {
   return { atMs, type: payload.type, isMainThreat: false, payload };
 }
 
-function edgeY(edge: Edge, h: number): number {
-  return edge === "TOP" ? -EDGE_OFFSET : h + EDGE_OFFSET;
-}
-
 function travelMs(dist: number, speed: number): number {
   return (dist / speed) * 1000;
 }
@@ -132,30 +128,6 @@ function enemyLine(args: BuildArgs, rawLeadMs: number, speed: number, width: num
     ],
     resolveMs: leadMs + travelMs(enemyReach(args) + 120, speed),
     recognitionMs: 0,
-  };
-}
-
-function sideLine(args: BuildArgs, edge: Edge, leadMs: number, speed: number, width: number): ThreatPlan {
-  const { rng, player, ctx } = args;
-  const dx = rng.sign() * rng.range(120, 250);
-  const origin = { x: player.x + dx, y: edgeY(edge, ctx.cfg.world.height) };
-  return {
-    events: [
-      main(0, {
-        type: "LINE_SHOT",
-        origin: { mode: "EDGE", edge, dxFromAnchor: dx },
-        aim: { mode: "ANCHOR", angleJitterRad: rng.range(-0.04, 0.04) },
-        launchAtMs: leadMs,
-        width,
-        speed,
-        bodyLength: LINE_BODY,
-        maxTravel: LINE_TRAVEL,
-        enemyCast: false,
-      }),
-    ],
-    resolveMs: leadMs + travelMs(distance(origin, player) + 120, speed),
-    recognitionMs: 0,
-    sideEdge: edge,
   };
 }
 
@@ -215,9 +187,9 @@ function yoneCombo(a: BuildArgs, style: "q3" | "r"): ThreatPlan {
   return plan;
 }
 
-// ---- 玉藻 ----------------------------------------------------------------------
+// ---- アリ ----------------------------------------------------------------------
 
-/** 玉藻R (当たり判定なし)。bearingは「Player -> 玉藻」の向きからの回転 */
+/** アリR (当たり判定なし)。bearingは「Player -> アリ」の向きからの回転 */
 function tamamoR(at: number, toDistance: number, bearingRad: number): ScheduledEvent {
   return side(at, { type: "TAMAMO_R", toDistance, bearingRad });
 }
@@ -409,15 +381,6 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
     };
   },
 
-  "ENC-006": (a) => {
-    const plan = sideLine(a, "TOP", pr(a, "leadMs"), pr(a, "speed"), pr(a, "width"));
-    const { rng, player } = a;
-    const shadowAt = -rng.range(2_000, 3_000);
-    plan.events.push(side(shadowAt, { type: "EDGE_SHADOW", edge: "TOP", x: player.x + rng.range(-150, 150), durationMs: 450 }));
-    plan.preLeadMs = -shadowAt;
-    return plan;
-  },
-
   "ENC-008": (a) => {
     const delay = pr(a, "delayMs");
     const offset = fromAngle(a.rng.range(0, Math.PI * 2));
@@ -522,21 +485,6 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
     // CS可能になったミニオンの直後に遅いprojectile: 敵の小ミニオン1体の体力が本命直後に尽きるようにする
     const plan = enemyLine(a, pr(a, "leadMs"), pr(a, "speed"), pr(a, "width"));
     plan.csLureMs = a.rng.range(300, 900);
-    return plan;
-  },
-
-  "ENC-016": (a) => {
-    const plan = sideLine(a, pickSideEdge(a), pr(a, "leadMs"), pr(a, "speed"), pr(a, "width"));
-    if (a.ctx.champion === "yonekura") {
-      // 米倉: 中央のFakeは「Eで踏み込んで戻るだけ」
-      const fakeAt = -a.rng.range(2_400, 2_800);
-      plan.events.push(yoneE(a, fakeAt, 130, 700));
-      plan.preLeadMs = -fakeAt;
-      return plan;
-    }
-    const fakeAt = -a.rng.range(1_500, 1_900);
-    plan.events.push(side(fakeAt, { type: "FAKE_CAST", durationMs: 500 }));
-    plan.preLeadMs = -fakeAt;
     return plan;
   },
 
@@ -669,7 +617,7 @@ const THREAT_BUILDERS: Record<string, (args: BuildArgs) => ThreatPlan> = {
     };
   },
 
-  // ---- 玉藻 -------------------------------------------------------------------
+  // ---- アリ -------------------------------------------------------------------
   "TMM-RE": (a) => {
     const { rng } = a;
     const [lo, hi] = a.def.parameters.rCount as Range;

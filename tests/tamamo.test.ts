@@ -18,7 +18,7 @@ const gen = (id: string, seed: string, budget = 2) =>
 const rEvents = (enc: GeneratedEncounter) => enc.events.filter((e) => e.payload.type === "TAMAMO_R");
 const mainE = (enc: GeneratedEncounter) => enc.events.find((e) => e.isMainThreat)!;
 
-/** Eの向き (玉藻 -> Player) に垂直な2方向 */
+/** Eの向き (アリ -> Player) に垂直な2方向 */
 function sideways(enc: GeneratedEncounter): { x: number; y: number }[] {
   const s = new RoundSimulation(enc, sim);
   s.advanceTo(enc.threatStartMs + 1);
@@ -27,8 +27,8 @@ function sideways(enc: GeneratedEncounter): { x: number; y: number }[] {
   return [1, -1].map((k) => ({ x: (-d.y / n) * k, y: (d.x / n) * k }));
 }
 
-describe("玉藻", () => {
-  it("E is a hidden-range charm cast by 玉藻 herself", () => {
+describe("アリ", () => {
+  it("E is a hidden-range charm cast by アリ herself", () => {
     const enc = gen("TMM-RE", "t-1");
     const e = mainE(enc);
     expect(e.payload.type === "LINE_SHOT" && e.payload.style === "charm" && e.payload.origin.mode === "ENEMY").toBe(true);
@@ -134,7 +134,7 @@ describe("玉藻", () => {
     }
   });
 
-  it("all 玉藻 problems validate at every difficulty", () => {
+  it("all アリ problems validate at every difficulty", () => {
     for (const def of TAMAMO_DEFINITIONS) {
       for (const budget of [1, 2, 3.2]) {
         const enc = gen(def.id, `v-${def.id}-${budget}`, budget);
@@ -143,7 +143,7 @@ describe("玉藻", () => {
     }
   });
 
-  it("a charm hit walks the player toward 玉藻 and holds the resolution for it", () => {
+  it("a charm hit walks the player toward アリ and holds the resolution for it", () => {
     const enc = gen("TMM-RE", "c-1");
     const s = runScripted(enc, sim, []);
     const d = s.hitDisplacement()!;

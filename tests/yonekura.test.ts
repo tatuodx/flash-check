@@ -22,7 +22,7 @@ const gen = (id: string, seed: string, budget = 2) =>
   generateValidated(getAnyDefinition(id), { roundIndex: 5, difficultyBudget: budget, champion: "yonekura", cfg: GAME_CONFIG }, createRng(seed));
 
 describe("champion assignment", () => {
-  it("picks 標準 / 米倉 / 玉藻 at the configured chances, reproducibly, and swaps enemy-cast problems", () => {
+  it("picks 標準 / 米倉 / アリ at the configured chances, reproducibly, and swaps enemy-cast problems", () => {
     const count = { default: 0, yonekura: 0, tamamo: 0 };
     let n = 0;
     for (let s = 0; s < 60; s++) {

@@ -165,7 +165,7 @@ export function makeYonekura(): ChampionModel {
 }
 
 /**
- * 玉藻: 九尾の狐モチーフのデフォルメ (オリジナルデザイン)。
+ * アリ: 九尾の狐モチーフのデフォルメ (オリジナルデザイン)。
  * 白金色の髪と狐耳、赤と白の衣、背中に扇状に広がる5本の尾、右手に浮かぶ桃色の玉 (weapon)
  */
 export function makeTamamo(): ChampionModel {

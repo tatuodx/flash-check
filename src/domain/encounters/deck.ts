@@ -18,10 +18,6 @@ export function deckViolations(deck: readonly EncounterDefinition[], cfg: GameCo
     streak = deck[i].kind === deck[i - 1].kind ? streak + 1 : 1;
     if (streak > d.maxSameKindStreak) v.push(`kind ${deck[i].kind} repeats more than ${d.maxSameKindStreak}x`);
     if (deck[i].expectedAction === "WAIT" && deck[i - 1].expectedAction === "WAIT") v.push("consecutive WAIT rounds");
-    // 上下が固定のSide Gank (ENC-006) は、直前のSide Gankと同じ方向になり得るため連続させない
-    if (deck[i].kind === "SIDE_GANK" && deck[i].parameters.edge !== undefined && deck[i - 1].kind === "SIDE_GANK") {
-      v.push("fixed-edge side gank right after another side gank");
-    }
   }
   deck.forEach((e, i) => {
     if (!cfg.roundTiers[i].includes(e.difficulty)) v.push(`round ${i + 1} tier mismatch`);

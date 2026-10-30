@@ -450,7 +450,7 @@ export class GameView {
 
   /**
    * 被弾後に動かされる自分の表示位置。
-   * クリッツブランクのQ = 本人の前まで引き寄せ (加減速あり) / 玉藻のE = 魅了されて一定の速さで歩かされる
+   * クリッツブランクのQ = 本人の前まで引き寄せ (加減速あり) / アリのE = 魅了されて一定の速さで歩かされる
    */
   private pulledPlayerPos(sim: RoundSimulation, vt: number): Vec2 {
     const d = sim.hitDisplacement();
@@ -460,7 +460,7 @@ export class GameView {
     return add(d.from, scale(sub(d.to, d.from), e));
   }
 
-  /** 玉藻のE: 範囲は表示せず、飛んでいく桃色のハートだけを描く */
+  /** アリのE: 範囲は表示せず、飛んでいく桃色のハートだけを描く */
   private drawCharm(h: LineHazard, t: number, vt: number): void {
     if (!h.launched || h.done) return;
     const p = h.payload;
@@ -482,7 +482,7 @@ export class GameView {
     void t;
   }
 
-  /** 玉藻の演出: 残りのRの回数を表す狐火 (頭上を回る玉) とRの残像 */
+  /** アリの演出: 残りのRの回数を表す狐火 (頭上を回る玉) とRの残像 */
   private drawTamamo(sim: RoundSimulation, enemy: Vec2, vt: number, seen: boolean): void {
     if (!seen) return;
     const left = sim.tamamoRLeft;

@@ -88,7 +88,7 @@ export class RoundSystem {
         if (this.sim.finished) this.resolve(this.roundStartAt + this.sim.t);
         break;
       case "RESOLUTION": {
-        // クリッツブランクのQ (引き寄せ) / 玉藻のE (魅了) で被弾したときは、その演出の分だけ長く止める
+        // クリッツブランクのQ (引き寄せ) / アリのE (魅了) で被弾したときは、その演出の分だけ長く止める
         const hold = p.resolutionMs + (this.sim.hitDisplacement()?.durationMs ?? 0);
         if (elapsed >= hold) this.transition("RESULT", this.phaseStartedAt + hold);
         break;

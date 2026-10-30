@@ -51,17 +51,6 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
   },
   // ---- Tier 2 ----
   {
-    id: "ENC-006",
-    name: "Top River Gank",
-    kind: "SIDE_GANK",
-    expectedAction: "FLASH",
-    difficulty: 2,
-    durationRangeMs: [8_000, 14_000],
-    recognitionOffsetMs: 0,
-    timingWindow: { excellentMs: 300, goodMs: 450, lateMs: 650 },
-    parameters: { leadMs: [300, 220], speed: [1_050, 1_250], width: [80, 95], edge: "TOP" },
-  },
-  {
     id: "ENC-008",
     name: "Fast Circle Trap",
     kind: "CIRCLE_DELAYED",
@@ -117,17 +106,6 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     parameters: { leadMs: [480, 400], speed: [340, 420], width: [90, 110] },
   },
   // ---- Tier 3 ----
-  {
-    id: "ENC-016",
-    name: "Mid Fake, River Real",
-    kind: "SIDE_GANK",
-    expectedAction: "FLASH",
-    difficulty: 3,
-    durationRangeMs: [11_000, 18_000],
-    recognitionOffsetMs: 0,
-    timingWindow: { excellentMs: 280, goodMs: 420, lateMs: 600 },
-    parameters: { leadMs: [280, 200], speed: [1_100, 1_300], width: [80, 100] },
-  },
   {
     id: "ENC-017",
     name: "Crossing Projectiles",
@@ -303,14 +281,14 @@ export const YONEKURA_REPLACEMENTS: Record<string, string> = {
 /** 米倉では出題できない問題 (Q1/Q2を出題しない方針のため、敵が撃つMOVE問題) */
 export const YONEKURA_UNSUPPORTED = new Set(["ENC-002", "ENC-015"]);
 
-// ---- 玉藻 (相手チャンピオン) の出題 -----------------------------------------------
+// ---- アリ (相手チャンピオン) の出題 -----------------------------------------------
 // E (魅了) を出題し、R (最大3回の短いダッシュ、当たり判定なし) で接近とEのタイミングを読みにくくする。
 // Eは範囲を表示しない。R の回数は問題ごとに抽選する (parameters.rCount = [最小, 最大])
 
 export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
   {
     id: "TMM-RE",
-    name: "玉藻 R接近→E",
+    name: "アリ R接近→E",
     kind: "STRAIGHT_FAST",
     expectedAction: "FLASH",
     difficulty: 1,
@@ -322,7 +300,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
   },
   {
     id: "TMM-E-FAR",
-    name: "玉藻 遠いE",
+    name: "アリ 遠いE",
     kind: "STRAIGHT_SLOW",
     expectedAction: "MOVE",
     difficulty: 1,
@@ -334,7 +312,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
   },
   {
     id: "TMM-RRE",
-    name: "玉藻 R揺さぶり→E",
+    name: "アリ R揺さぶり→E",
     kind: "STRAIGHT_FAST",
     expectedAction: "FLASH",
     difficulty: 2,
@@ -345,7 +323,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
   },
   {
     id: "TMM-RBACK",
-    name: "玉藻 R接近→R後退→E",
+    name: "アリ R接近→R後退→E",
     kind: "STRAIGHT_SLOW",
     expectedAction: "MOVE",
     difficulty: 2,
@@ -356,7 +334,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
   },
   {
     id: "TMM-RBACK-F",
-    name: "玉藻 R接近→R後退→R再接近→E",
+    name: "アリ R接近→R後退→R再接近→E",
     kind: "DIRECTIONAL_TRAP",
     expectedAction: "FLASH",
     difficulty: 3,
@@ -367,7 +345,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
   },
 ];
 
-/** 玉藻のラウンドで差し替える問題 (既定ID -> 玉藻ID) */
+/** アリのラウンドで差し替える問題 (既定ID -> アリID) */
 export const TAMAMO_REPLACEMENTS: Record<string, string> = {
   "ENC-001": "TMM-RE",
   "ENC-002": "TMM-E-FAR",
@@ -376,7 +354,7 @@ export const TAMAMO_REPLACEMENTS: Record<string, string> = {
   "ENC-017": "TMM-RBACK-F",
 };
 
-/** 玉藻では出題しない問題 (Rだけのフェイクは作らない方針のためWAIT問題、Eで再現しない突進) */
+/** アリでは出題しない問題 (Rだけのフェイクは作らない方針のためWAIT問題、Eで再現しない突進) */
 export const TAMAMO_UNSUPPORTED = new Set(["ENC-004", "ENC-024", "ENC-010"]);
 
 export function getAnyDefinition(id: string): EncounterDefinition {
