@@ -174,7 +174,7 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 280, goodMs: 420, lateMs: 600 },
     // APPROACH: Wで近づいて止まる距離 / AMBUSH: 陰の中に潜む距離
-    parameters: { stopDistance: [285, 265], ambushDistance: [480, 500], windupMs: [240, 215] },
+    parameters: { stopDistance: [255, 235], ambushDistance: [365, 375], windupMs: [220, 200] },
   },
   {
     id: "KRZ-Q-FAR",
@@ -185,7 +185,7 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     durationRangeMs: [8_000, 14_000],
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 320, goodMs: 480, lateMs: 680 },
-    parameters: { stopDistance: [475, 460], windupMs: [300, 280] },
+    parameters: { stopDistance: [355, 340], windupMs: [300, 280] },
   },
   {
     id: "KRZ-W",
@@ -196,7 +196,7 @@ export const ENCOUNTER_DEFINITIONS: EncounterDefinition[] = [
     durationRangeMs: [9_000, 15_000],
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 0, goodMs: 0, lateMs: 0 },
-    parameters: { stopDistance: [470, 430], waitMs: [800, 500], passDx: [380, 330] },
+    parameters: { stopDistance: [370, 340], waitMs: [800, 500], passDx: [380, 330] },
   },
   {
     id: "ENC-024",
@@ -330,7 +330,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 320, goodMs: 480, lateMs: 680 },
     // Rは横か後ろへの位置取りだけ。最後のRで outDistance まで離れる (0回なら追従レンジのまま)
-    parameters: { rCount: [0, 2], outDistance: [450, 430], rToEMs: [700, 300], windupMs: [260, 250] },
+    parameters: { rCount: [0, 2], outDistance: [330, 310], rToEMs: [700, 300], windupMs: [260, 250] },
   },
   {
     id: "TMM-RRE",
@@ -352,7 +352,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
     durationRangeMs: [9_000, 15_000],
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 320, goodMs: 480, lateMs: 680 },
-    parameters: { inDistance: [200, 185], backDistance: [410, 400], rGapMs: [900, 450], rToEMs: [600, 250], windupMs: [260, 250] },
+    parameters: { inDistance: [200, 185], backDistance: [320, 305], rGapMs: [900, 450], rToEMs: [600, 250], windupMs: [260, 250] },
   },
   {
     id: "TMM-RBACK-F",
@@ -363,7 +363,7 @@ export const TAMAMO_DEFINITIONS: EncounterDefinition[] = [
     durationRangeMs: [10_000, 17_000],
     recognitionOffsetMs: 0,
     timingWindow: { excellentMs: 280, goodMs: 420, lateMs: 600 },
-    parameters: { inDistance: [215, 190], backDistance: [400, 380], rGapMs: [800, 400], rToEMs: [400, 100], windupMs: [240, 215] },
+    parameters: { inDistance: [215, 190], backDistance: [315, 300], rGapMs: [800, 400], rToEMs: [400, 100], windupMs: [240, 215] },
   },
 ];
 

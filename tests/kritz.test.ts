@@ -104,7 +104,7 @@ describe("クリッツブランク", () => {
     const s0 = new RoundSimulation(enc, sim);
     s0.advanceTo(enc.threatStartMs + 1);
     const g = s0.ganker!.pos;
-    expect(distance(g, s0.player.pos)).toBeGreaterThan(440);
+    expect(distance(g, s0.player.pos)).toBeGreaterThan(330);
     const d = { x: enc.playerSpawn.x - g.x, y: enc.playerSpawn.y - g.y };
     const n = Math.hypot(d.x, d.y);
     const ok = [1, -1].some((sgn) => {

@@ -91,7 +91,7 @@ describe("玉藻", () => {
   it("R lands at the planned distance before E, so E is cast from that distance", () => {
     for (const [id, key, lo, hi] of [
       ["TMM-RE", "inDistance", 180, 240],
-      ["TMM-RBACK", "backDistance", 360, 420],
+      ["TMM-RBACK", "backDistance", 280, 340],
       ["TMM-RBACK-F", "inDistance", 180, 230],
     ] as const) {
       for (let i = 0; i < 6; i++) {

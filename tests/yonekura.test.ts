@@ -22,7 +22,7 @@ const gen = (id: string, seed: string, budget = 2) =>
   generateValidated(getAnyDefinition(id), { roundIndex: 5, difficultyBudget: budget, champion: "yonekura", cfg: GAME_CONFIG }, createRng(seed));
 
 describe("champion assignment", () => {
-  it("picks each of 標準 / 米倉 / 玉藻 about a third of the time, reproducibly, and swaps enemy-cast problems", () => {
+  it("picks 標準 / 米倉 / 玉藻 at the configured chances, reproducibly, and swaps enemy-cast problems", () => {
     const count = { default: 0, yonekura: 0, tamamo: 0 };
     let n = 0;
     for (let s = 0; s < 60; s++) {
@@ -45,9 +45,10 @@ describe("champion assignment", () => {
         }
       }
     }
-    for (const c of Object.values(count)) {
-      expect(c / n).toBeGreaterThan(0.25);
-      expect(c / n).toBeLessThan(0.42);
+    const { yonekura, tamamo } = GAME_CONFIG.champions.chances;
+    const expected = { default: 1 - yonekura - tamamo, yonekura, tamamo };
+    for (const k of ["default", "yonekura", "tamamo"] as const) {
+      expect(Math.abs(count[k] / n - expected[k])).toBeLessThan(0.06);
     }
   });
 

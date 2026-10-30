@@ -77,7 +77,7 @@ export const GAME_CONFIG = {
   /** 相手チャンピオン */
   champions: {
     /** ラウンドごとの相手の抽選確率 (残りは標準) */
-    chances: { yonekura: 1 / 3, tamamo: 1 / 3 },
+    chances: { yonekura: 0.45, tamamo: 0.45 },
     yonekura: {
       name: "米倉",
       /** Q3 (突風の突進) の固定距離・R (一閃) の固定距離 */
@@ -97,7 +97,7 @@ export const GAME_CONFIG = {
       /** R着地後に立ち止まる時間 */
       rSettleMs: 250,
       /** E (魅了): 射程・速さ・判定の幅 (直径)・ハートの長さ */
-      eRange: 460,
+      eRange: 350,
       eSpeed: 750,
       eWidth: 60,
       eBodyLength: 30,
@@ -117,8 +117,8 @@ export const GAME_CONFIG = {
       /** 陰の中で待機・出現するy (陰の境界からの深さ) */
       shadeDepth: 30,
       /** Q (グラブ): 鎖の届く距離・腕の速さ・判定の幅 (直径)・先端の長さ */
-      qRange: 520,
-      qSpeed: 800,
+      qRange: 390,
+      qSpeed: 700,
       qWidth: 70,
       qHeadLength: 30,
       /** 当たったとき、クリッツブランクの前まで引き寄せる演出の長さ */
